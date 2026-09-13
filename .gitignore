@@ -42,7 +42,7 @@ paper/
 # SLURM + PowerShell launchers for the offline pretraining runs
 scripts/
 # internal implementation-plan notes
-docs/
+docs/*_implementation_plan.md
 # superseded website design mockup
 wireframes/
 
