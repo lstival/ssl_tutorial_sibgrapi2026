@@ -1,0 +1,10 @@
+{
+  "step": 15000,
+  "loss": 1.5078233480453491,
+  "mechanism": "dino",
+  "entropy": 0.3679727613925934,
+  "corpus": "ucr",
+  "n_datasets": 128,
+  "n_series": 45192,
+  "steps_total": 15000
+}

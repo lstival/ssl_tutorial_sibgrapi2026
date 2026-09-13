@@ -1,0 +1,56 @@
+# Claude Code local settings (machine-specific permission log)
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+.ruff_cache/
+
+# Downloaded datasets (multi-GB; every loader re-downloads them on first use --
+# EuroSAT via torchvision + mirrors, the UCR archive and the SeCo tiles likewise).
+data/
+
+# Training run logs
+*.jsonl
+/logs/
+artifacts/**/run_logs/
+
+# Optimizer/resume state from offline pretraining: 140-196 MB each and NOT used by any
+# notebook (the notebooks only ever load the inference encoders below). Keep these out.
+*.train.pt
+
+# Optuna study databases from the offline hyper-parameter searches.
+*.db
+
+# --- deliberately NOT ignored -------------------------------------------------------
+# artifacts/**/checkpoints/*.pt are committed via Git LFS so that a fresh clone can run
+# every notebook offline. See .gitattributes and README.md.
+
+# --- not part of the published code ---------------------------------------------------
+# These stay on disk for local work but are deliberately out of the repository: the
+# repository ships the tutorial (notebooks + shared modules + pretrained encoders + site),
+# not the machinery used to produce it.
+# IEEE tutorial paper source (LaTeX)
+paper/
+# SLURM + PowerShell launchers for the offline pretraining runs
+scripts/
+# internal implementation-plan notes
+docs/
+# superseded website design mockup
+wireframes/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.swp
+
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.bak

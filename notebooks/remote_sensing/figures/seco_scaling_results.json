@@ -1,0 +1,112 @@
+{
+  "f002": {
+    "checkpoint": "contrastive.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "full_label": 0.8822222222222222,
+    "few_label": {
+      "10": 0.6420370370370371,
+      "20": 0.6824074074074075,
+      "50": 0.7581481481481481,
+      "100": 0.7961111111111111,
+      "200": 0.8190740740740741
+    },
+    "meta": {
+      "fraction": 0.02,
+      "locations": 400,
+      "patches": 2000,
+      "steps": 20000,
+      "batch_size": 256,
+      "preload_res": 128,
+      "epochs_equivalent": 2560.0
+    }
+  },
+  "f005": {
+    "checkpoint": "contrastive.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "full_label": 0.8985185185185185,
+    "few_label": {
+      "10": 0.6418518518518519,
+      "20": 0.7103703703703703,
+      "50": 0.7851851851851852,
+      "100": 0.8218518518518518,
+      "200": 0.8457407407407408
+    },
+    "meta": {
+      "fraction": 0.05,
+      "locations": 1000,
+      "patches": 5000,
+      "steps": 20000,
+      "batch_size": 256,
+      "preload_res": 128,
+      "epochs_equivalent": 1024.0
+    }
+  },
+  "f010": {
+    "checkpoint": "contrastive.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "full_label": 0.9133333333333333,
+    "few_label": {
+      "10": 0.6496296296296297,
+      "20": 0.7124074074074074,
+      "50": 0.7898148148148149,
+      "100": 0.8266666666666667,
+      "200": 0.8498148148148148
+    },
+    "meta": {
+      "fraction": 0.1,
+      "locations": 2000,
+      "patches": 10000,
+      "steps": 20000,
+      "batch_size": 256,
+      "preload_res": 128,
+      "epochs_equivalent": 512.0
+    }
+  },
+  "f030": {
+    "checkpoint": "contrastive.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "full_label": 0.9259259259259259,
+    "few_label": {
+      "10": 0.6781481481481482,
+      "20": 0.7372222222222222,
+      "50": 0.8127777777777778,
+      "100": 0.8394444444444444,
+      "200": 0.8709259259259259
+    },
+    "meta": {
+      "fraction": 0.3,
+      "locations": 6000,
+      "patches": 30000,
+      "steps": 20000,
+      "batch_size": 256,
+      "preload_res": 128,
+      "epochs_equivalent": 170.7
+    }
+  },
+  "f100": {
+    "checkpoint": "contrastive.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "full_label": 0.9292592592592592,
+    "few_label": {
+      "10": 0.659074074074074,
+      "20": 0.7257407407407407,
+      "50": 0.8131481481481482,
+      "100": 0.842037037037037,
+      "200": 0.8681481481481481
+    },
+    "meta": {
+      "fraction": 1.0,
+      "locations": 20000,
+      "patches": 100000,
+      "steps": 20000,
+      "batch_size": 256,
+      "preload_res": 128,
+      "epochs_equivalent": 51.2
+    }
+  }
+}

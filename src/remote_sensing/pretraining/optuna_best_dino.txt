@@ -1,0 +1,13 @@
+best_value 0.775
+raw_probe_acc 0.775
+final_entropy 0.9531363248825073
+lr 7.398288630807256e-05
+weight_decay 4.290621084594721e-05
+out_dim 4096
+tau_teacher 0.05687031143970729
+tau_student 0.1405804026132204
+tau_teacher_warmup_steps 3500
+freeze_last_layer_steps 500
+ema_momentum_start 0.992778983775937
+n_local 3
+batch_size 256

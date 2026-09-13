@@ -1,0 +1,400 @@
+{
+  "imagenet_dino_init": {
+    "checkpoint": "dino_init_vit_s8.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.9327777777777778,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 374.6
+      },
+      "bitfit": {
+        "accuracy": 0.9577777777777777,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 379.8
+      },
+      "full": {
+        "accuracy": 0.9896296296296296,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 403.8
+      }
+    },
+    "few_label": {
+      "10": {
+        "frozen": {
+          "accuracy": 0.15037037037037038,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 1.8
+        },
+        "bitfit": {
+          "accuracy": 0.15,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 2.1
+        },
+        "full": {
+          "accuracy": 0.5675925925925925,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 2.2
+        }
+      },
+      "50": {
+        "frozen": {
+          "accuracy": 0.15685185185185185,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 4.3
+        },
+        "bitfit": {
+          "accuracy": 0.14629629629629629,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 4.7
+        },
+        "full": {
+          "accuracy": 0.5911111111111111,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 5.1
+        }
+      },
+      "200": {
+        "frozen": {
+          "accuracy": 0.8412962962962963,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 30.8
+        },
+        "bitfit": {
+          "accuracy": 0.7927777777777778,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 31.6
+        },
+        "full": {
+          "accuracy": 0.9566666666666667,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 33.6
+        }
+      }
+    }
+  },
+  "imagenet_dino_init_fewlabel": {
+    "checkpoint": "dino_init_vit_s8.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 0,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.905,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 99.4,
+        "epochs": 4,
+        "total_steps": 336
+      },
+      "bitfit": {
+        "accuracy": 0.9185185185185185,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 101.1,
+        "epochs": 4,
+        "total_steps": 336
+      },
+      "full": {
+        "accuracy": 0.982037037037037,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 108.0,
+        "epochs": 4,
+        "total_steps": 336
+      }
+    },
+    "few_label": {
+      "10": {
+        "frozen": {
+          "accuracy": 0.8335185185185185,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 39.0,
+          "epochs": 300,
+          "total_steps": 300
+        },
+        "bitfit": {
+          "accuracy": 0.8240740740740741,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 40.1,
+          "epochs": 300,
+          "total_steps": 300
+        },
+        "full": {
+          "accuracy": 0.8548148148148148,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 41.3,
+          "epochs": 300,
+          "total_steps": 300
+        }
+      },
+      "50": {
+        "frozen": {
+          "accuracy": 0.8844444444444445,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 88.4,
+          "epochs": 300,
+          "total_steps": 300
+        },
+        "bitfit": {
+          "accuracy": 0.8959259259259259,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 89.8,
+          "epochs": 300,
+          "total_steps": 300
+        },
+        "full": {
+          "accuracy": 0.9340740740740741,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 97.8,
+          "epochs": 300,
+          "total_steps": 300
+        }
+      },
+      "200": {
+        "frozen": {
+          "accuracy": 0.8925925925925926,
+          "lr": 0.001,
+          "trainable_encoder_params": 0,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.0,
+          "train_seconds": 89.1,
+          "epochs": 43,
+          "total_steps": 301
+        },
+        "bitfit": {
+          "accuracy": 0.9081481481481481,
+          "lr": 0.0005,
+          "trainable_encoder_params": 26112,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 0.002429699503340837,
+          "train_seconds": 90.4,
+          "epochs": 43,
+          "total_steps": 301
+        },
+        "full": {
+          "accuracy": 0.9672222222222222,
+          "lr": 0.0001,
+          "trainable_encoder_params": 10747008,
+          "encoder_params": 10747008,
+          "head_params": 3850,
+          "trainable_fraction": 1.0,
+          "train_seconds": 96.2,
+          "epochs": 43,
+          "total_steps": 301
+        }
+      }
+    }
+  },
+  "mae_seco": {
+    "checkpoint": "mae_vit_s8.pt",
+    "arch": "vit_s8",
+    "pool": "mean",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.7114814814814815,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 239.0,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.7748148148148148,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 271.6,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.937037037037037,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 264.3,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  },
+  "dino_seco": {
+    "checkpoint": "dino_vit_s8.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.7396296296296296,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 405.1,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.7635185185185185,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 132.3,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.9238888888888889,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 135.0,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  },
+  "contrastive_seco": {
+    "checkpoint": "contrastive_vit_s8.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.8672222222222222,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 744.9,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.8840740740740741,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 262.1,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.9553703703703704,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 269.5,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  }
+}

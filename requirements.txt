@@ -1,0 +1,29 @@
+# SIBGRAPI 2026 SSL Tutorial -- consolidated dependencies.
+#
+# Google Colab already ships torch, torchvision, numpy, pandas, matplotlib, scikit-learn,
+# tqdm and requests, so on Colab you normally need to install nothing. This file is the
+# reference for a local run (e.g. `pip install -r requirements.txt` inside a fresh venv or
+# the `bepe` conda env used during development, Python 3.11).
+#
+# Versions are lower bounds that match what the notebooks were validated against; newer
+# releases are expected to work.
+
+# --- core, both tutorial halves ---
+torch>=2.1
+numpy>=1.24
+matplotlib>=3.7
+scikit-learn>=1.3          # t-SNE, linear probes, DLinear least squares
+tqdm>=4.66
+
+# --- remote-sensing half (notebooks/remote_sensing, src/remote_sensing) ---
+torchvision>=0.16          # EuroSAT dataset + transforms
+timm>=0.9                  # ImageNet-pretrained ViT-S/8 used for the embedding comparison
+rasterio>=1.3              # reading Sentinel-2 GeoTIFF tiles for SeCo pretraining
+requests>=2.31             # dataset / checkpoint downloads
+seaborn>=0.12              # plot theming (optional; guarded by try/except)
+
+# --- time-series half (notebooks/time_series, src/time_series) ---
+pandas>=2.0                # ETT / Weather / Electricity CSV loading
+
+# --- offline pretraining hyper-parameter search only (src/*/pretraining/optuna_search.py) ---
+optuna>=3.4

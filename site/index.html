@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Self-Supervised Learning Tutorial — SIBGRAPI 2026</title>
+<meta name="description" content="SIBGRAPI 2026 tutorial on self-supervised learning: contrastive, masking and distillation methods, with notebooks, pretrained encoders and results on remote sensing and time series.">
+<meta property="og:title" content="Self-Supervised Learning: Contrastive, Masking, and Distillation Methods">
+<meta property="og:description" content="SIBGRAPI 2026 tutorial — notebooks, pretrained encoders and results across remote sensing and time series.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chivo:ital,wght@0,200..900;1,200..900&family=Source+Serif+4:ital,opsz,wght@0,8..60,300..700;1,8..60,300..600&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/css/site.css">
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <div class="nav__in">
+    <a class="brand" href="#top">
+      <span class="brand__mk" aria-hidden="true"><i></i><i></i><i></i></span>
+      SSL Tutorial
+    </a>
+    <button class="nav__toggle" id="navToggle" aria-expanded="false" aria-controls="navLinks">Menu</button>
+    <div class="nav__links" id="navLinks">
+      <a href="#why">Why SSL</a>
+      <a href="#paradigms">Paradigms</a>
+      <a href="#results">Results</a>
+      <a href="#compare">Compare</a>
+      <a href="#notebooks">Notebooks</a>
+      <a href="#models">Models</a>
+      <a class="nav__cta" id="navRepo" href="#" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<main id="top">
+
+<!-- ================= HERO ================= -->
+<header class="hero wrap">
+  <div class="badges">
+    <span class="badge">SIBGRAPI 2026</span>
+    <span class="badge">Tutorial · 3 hours</span>
+    <span class="badge badge--live">Notebooks + pretrained encoders</span>
+  </div>
+
+  <h1>Self-Supervised Learning:
+    <span class="u-con">Contrastive</span>,
+    <span class="u-mask">Masking</span>, and
+    <span class="u-dist">Distillation</span> Methods</h1>
+
+  <p class="lede hero__lede">Labels are the bottleneck in deep learning — expensive, slow, and dependent on
+  scarce expertise. Self-supervised learning removes them from the objective, deriving its targets from the
+  data itself. This tutorial compares the three paradigms that dominate the field, on
+  <strong>remote-sensing imagery</strong> and <strong>time series</strong>, using one fixed evaluation protocol.</p>
+
+  <p class="hero__q">“Which SSL paradigm should one choose?”</p>
+
+  <div class="authors">
+    <div class="author"><b>Leandro Stival</b><span>Wageningen University &amp; Research · corresponding</span></div>
+    <div class="author"><b>Chao Zhang</b><span>Wageningen University &amp; Research</span></div>
+    <div class="author"><b>Ricardo da Silva Torres</b><span>Wageningen University &amp; Research</span></div>
+  </div>
+
+  <div class="btns">
+    <a class="btn btn--primary" href="#notebooks">Open the notebooks</a>
+    <a class="btn" href="#results">See the results</a>
+    <a class="btn" id="heroRepo" href="#" rel="noopener">Code repository ↗</a>
+  </div>
+</header>
+
+<!-- ================= WHY SSL ================= -->
+<section class="sec sec--rule wrap" id="why">
+  <div class="sec__head rv">
+    <p class="eyebrow">The shift</p>
+    <h2>From supervised to self-supervised</h2>
+    <p class="lede">In supervised learning, every gradient that reaches the encoder passes through a human
+    annotation — so the representation only learns what the labels reward, and the training set stops at the
+    number of pairs someone could afford to label.</p>
+  </div>
+
+  <div class="split rv">
+    <div>
+      <p>Self-supervised learning replaces the label with a target computed from the input itself. A
+      <strong>pretext task</strong> defines a transformation that turns <span class="mono">x</span> into one
+      or more views, plus a target that needs no annotation. Pretraining then runs over an unlabeled corpus
+      that can be orders of magnitude larger.</p>
+      <p>The result is an encoder shaped by the phenomenon at large rather than by one annotated set — which
+      is why it both adapts to new objectives and transfers to new domains.</p>
+      <div class="stat-pair">
+        <div class="stat stat--mute"><b class="num">N</b><span>Labeled pairs — bounded by annotation cost</span></div>
+        <div class="stat stat--hi"><b class="num">M ≫ N</b><span>Unlabeled samples — bounded only by storage</span></div>
+      </div>
+    </div>
+    <figure class="fig">
+      <div class="fig__frame">
+        <img src="assets/img/ssl_vs_supervised.png" alt="Diagram contrasting the supervised baseline, where human labels drive the loss, with the self-supervised objective, where a transformation generates both the altered input and its own pretext target." loading="lazy" width="1613" height="817">
+      </div>
+      <figcaption><b>Figure 1.</b> (a) The supervised baseline relies on scarce, costly annotations.
+      (b) The self-supervised objective derives its target from the data via a transformation, so the gradient
+      reaches the encoder without passing through an annotation step.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ================= PARADIGMS ================= -->
+<section class="sec sec--rule wrap" id="paradigms">
+  <div class="sec__head rv">
+    <p class="eyebrow">Mechanisms</p>
+    <h2>Three ways to build a pretext task</h2>
+    <p class="lede">Every paradigm picks a transformation that destroys the low-level statistics which would
+    make the objective trivially solvable. What survives is semantics. They differ in the form that invariance
+    takes — <strong>agreement across views</strong> versus <strong>recoverability from context</strong> — and
+    in the mechanism that stops the model from collapsing.</p>
+  </div>
+
+  <figure class="fig rv">
+    <div class="fig__frame fig__frame--wide">
+      <img src="assets/img/ssl_paradigms.png" alt="Three-panel diagram: (A) contrastive learning pulling positive pairs together and pushing negatives apart, (B) generative masking reconstructing 75 percent masked patches through an asymmetric decoder, (C) teacher-student self-distillation aligning a student with an EMA teacher under stop-gradient." loading="lazy" width="1761" height="980">
+    </div>
+    <figcaption><b>Figure 2.</b> Mechanisms and semantic goals of the three paradigms.
+    <b>(A)</b> Contrastive learning enforces global invariance with explicit repulsion.
+    <b>(B)</b> Masked autoencoding forces local inference by reconstructing heavily masked regions.
+    <b>(C)</b> Self-distillation reaches invariance without negatives, through an EMA teacher and stop-gradient.</figcaption>
+  </figure>
+
+  <div class="cards">
+    <!-- A -->
+    <article class="card card--con rv">
+      <p class="card__tag">(A) · Global invariance</p>
+      <h3>Contrastive learning</h3>
+      <span class="card__anim" aria-hidden="true">
+        <svg viewBox="0 0 220 84">
+          <circle cx="72" cy="42" r="7" fill="var(--c-con)">
+            <animate attributeName="cx" values="72;88;72" dur="3.4s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .6 1;.4 0 .6 1" keyTimes="0;0.5;1"/>
+          </circle>
+          <circle cx="148" cy="42" r="7" fill="var(--c-con)">
+            <animate attributeName="cx" values="148;132;148" dur="3.4s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .6 1;.4 0 .6 1" keyTimes="0;0.5;1"/>
+          </circle>
+          <line x1="84" y1="42" x2="136" y2="42" stroke="var(--c-con)" stroke-width="1.5" stroke-dasharray="3 3" opacity=".7"/>
+          <circle cx="26" cy="20" r="4.5" fill="var(--ink-3)" opacity=".55">
+            <animate attributeName="cx" values="26;16;26" dur="3.4s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="30" cy="64" r="4.5" fill="var(--ink-3)" opacity=".55">
+            <animate attributeName="cy" values="64;74;64" dur="3.4s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="192" cy="24" r="4.5" fill="var(--ink-3)" opacity=".55">
+            <animate attributeName="cx" values="192;202;192" dur="3.4s" repeatCount="indefinite"/>
+          </circle>
+          <circle cx="188" cy="62" r="4.5" fill="var(--ink-3)" opacity=".55">
+            <animate attributeName="cy" values="62;72;62" dur="3.4s" repeatCount="indefinite"/>
+          </circle>
+        </svg>
+      </span>
+      <p>Two augmented views of the same sample are pulled together; views of every other sample are pushed
+      apart. The only structure that survives is the identity shared across augmentations.</p>
+      <div class="card__eq">
+        <math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+          <mi>ℒ</mi><mo>=</mo><mo>−</mo><mi>log</mi>
+          <mfrac>
+            <mrow><mi>exp</mi><mo>(</mo><msup><mi>s</mi><mo>+</mo></msup><mo>/</mo><mi>τ</mi><mo>)</mo></mrow>
+            <mrow>
+              <mi>exp</mi><mo>(</mo><msup><mi>s</mi><mo>+</mo></msup><mo>/</mo><mi>τ</mi><mo>)</mo>
+              <mo>+</mo><munder><mo>∑</mo><mi>k</mi></munder>
+              <mi>exp</mi><mo>(</mo><msubsup><mi>s</mi><mi>k</mi><mo>−</mo></msubsup><mo>/</mo><mi>τ</mi><mo>)</mo>
+            </mrow>
+          </mfrac>
+        </math>
+      </div>
+      <div class="card__meta">
+        <dl class="card__row"><dt>Loss</dt><dd>InfoNCE over positive / negative pairs</dd></dl>
+        <dl class="card__row"><dt>Goal</dt><dd>Global instance invariance — classification, retrieval</dd></dl>
+        <dl class="card__row"><dt>Watch</dt><dd>Needs many negatives; batch-size pressure</dd></dl>
+        <div class="chips"><span class="chip">SimCLR</span><span class="chip">MoCo</span><span class="chip">SeCo</span><span class="chip">TS2Vec</span></div>
+      </div>
+    </article>
+
+    <!-- B -->
+    <article class="card card--mask rv">
+      <p class="card__tag">(B) · Local precision</p>
+      <h3>Masked autoencoding</h3>
+      <span class="card__anim" aria-hidden="true">
+        <svg viewBox="0 0 220 84">
+          <g>
+            <rect x="62" y="12" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".85"/>
+            <rect x="83" y="12" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".25">
+              <animate attributeName="opacity" values=".25;.25;.85;.25" dur="4s" repeatCount="indefinite" keyTimes="0;.45;.75;1"/>
+            </rect>
+            <rect x="104" y="12" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".85"/>
+            <rect x="62" y="33" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".25">
+              <animate attributeName="opacity" values=".25;.25;.85;.25" dur="4s" repeatCount="indefinite" keyTimes="0;.5;.8;1"/>
+            </rect>
+            <rect x="83" y="33" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".85"/>
+            <rect x="104" y="33" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".25">
+              <animate attributeName="opacity" values=".25;.25;.85;.25" dur="4s" repeatCount="indefinite" keyTimes="0;.55;.85;1"/>
+            </rect>
+            <rect x="62" y="54" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".25">
+              <animate attributeName="opacity" values=".25;.25;.85;.25" dur="4s" repeatCount="indefinite" keyTimes="0;.6;.9;1"/>
+            </rect>
+            <rect x="83" y="54" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".85"/>
+            <rect x="104" y="54" width="18" height="18" rx="2.5" fill="var(--c-mask)" opacity=".85"/>
+          </g>
+          <path d="M132 42 L162 42" stroke="var(--c-mask)" stroke-width="1.6" marker-end="url(#am)"/>
+          <defs><marker id="am" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+            <path d="M0,0 L7,3.5 L0,7 Z" fill="var(--c-mask)"/></marker></defs>
+          <rect x="170" y="28" width="28" height="28" rx="3" fill="none" stroke="var(--c-mask)" stroke-width="1.5" stroke-dasharray="3 2.5"/>
+        </svg>
+      </span>
+      <p>A large fraction of the input is withheld and must be recovered from what remains. No second view,
+      no negatives — the target is the missing part of the input itself.</p>
+      <div class="card__eq">
+        <math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+          <mi>ℒ</mi><mo>=</mo>
+          <mfrac><mn>1</mn><mrow><mo>|</mo><mi>ℳ</mi><mo>|</mo></mrow></mfrac>
+          <munder><mo>∑</mo><mrow><mi>j</mi><mo>∈</mo><mi>ℳ</mi></mrow></munder>
+          <msubsup>
+            <mrow><mo>‖</mo><msub><mover><mi>x</mi><mo>^</mo></mover><mi>j</mi></msub>
+            <mo>−</mo><msub><mi>x</mi><mi>j</mi></msub><mo>‖</mo></mrow>
+            <mn>2</mn><mn>2</mn>
+          </msubsup>
+        </math>
+      </div>
+      <div class="card__meta">
+        <dl class="card__row"><dt>Loss</dt><dd>Reconstruction error on masked positions only</dd></dl>
+        <dl class="card__row"><dt>Goal</dt><dd>Local structure — dense tasks, segmentation, forecasting</dd></dl>
+        <dl class="card__row"><dt>Watch</dt><dd>Mask too little and interpolation solves it</dd></dl>
+        <div class="chips"><span class="chip">MAE</span><span class="chip">SatMAE</span><span class="chip">PatchTST</span><span class="chip">Ti-MAE</span></div>
+      </div>
+    </article>
+
+    <!-- C -->
+    <article class="card card--dist rv">
+      <p class="card__tag">(C) · Asymmetry</p>
+      <h3>Teacher–student distillation</h3>
+      <span class="card__anim" aria-hidden="true">
+        <svg viewBox="0 0 220 84">
+          <rect x="34" y="14" width="52" height="24" rx="5" fill="none" stroke="var(--c-dist)" stroke-width="1.6"/>
+          <text x="60" y="30" text-anchor="middle" font-size="10" fill="var(--c-dist)" font-family="monospace">teacher</text>
+          <rect x="34" y="48" width="52" height="24" rx="5" fill="var(--c-dist)" opacity=".18"/>
+          <rect x="34" y="48" width="52" height="24" rx="5" fill="none" stroke="var(--c-dist)" stroke-width="1.6"/>
+          <text x="60" y="64" text-anchor="middle" font-size="10" fill="var(--c-dist)" font-family="monospace">student</text>
+          <path d="M92 60 C 118 60, 118 26, 140 26" fill="none" stroke="var(--c-dist)" stroke-width="1.5" stroke-dasharray="4 3" opacity=".8">
+            <animate attributeName="stroke-dashoffset" values="14;0" dur="1.6s" repeatCount="indefinite"/>
+          </path>
+          <circle cx="164" cy="42" r="15" fill="none" stroke="var(--c-dist)" stroke-width="1.6"/>
+          <text x="164" y="46" text-anchor="middle" font-size="10" fill="var(--c-dist)" font-family="monospace">ℓ</text>
+          <path d="M92 26 L 146 38" fill="none" stroke="var(--c-dist)" stroke-width="1.5" opacity=".55"/>
+          <text x="112" y="18" font-size="7.5" fill="var(--ink-3)" font-family="monospace">stop-grad</text>
+        </svg>
+      </span>
+      <p>A student matches a teacher that is an exponential moving average of the student itself, with a
+      stop-gradient on the teacher branch. Collapse is prevented by architecture, not repulsion.</p>
+      <div class="card__eq">
+        <math display="block" xmlns="http://www.w3.org/1998/Math/MathML">
+          <mi>ℒ</mi><mo>=</mo><mi>H</mi><mo>(</mo>
+          <mi>sg</mi><mo>[</mo><msub><mi>p</mi><mi>ξ</mi></msub>
+          <mo>(</mo><msup><mover><mi>x</mi><mo>~</mo></mover><mrow><mo>(</mo><mn>2</mn><mo>)</mo></mrow></msup><mo>)</mo><mo>]</mo>
+          <mo>,</mo>
+          <msub><mi>p</mi><mi>θ</mi></msub>
+          <mo>(</mo><msup><mover><mi>x</mi><mo>~</mo></mover><mrow><mo>(</mo><mn>1</mn><mo>)</mo></mrow></msup><mo>)</mo>
+          <mo>)</mo>
+        </math>
+      </div>
+      <div class="card__meta">
+        <dl class="card__row"><dt>Loss</dt><dd>Cross-entropy against a centered, sharpened teacher</dd></dl>
+        <dl class="card__row"><dt>Goal</dt><dd>Invariance with no negatives — global and dense</dd></dl>
+        <dl class="card__row"><dt>Watch</dt><dd>EMA rate and centering carry the whole burden</dd></dl>
+        <div class="chips"><span class="chip">DINO</span><span class="chip">DINOv2</span><span class="chip">I-JEPA</span><span class="chip">TS-JEPA</span></div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- ================= RESULTS ================= -->
+<section class="sec sec--rule wrap" id="results">
+  <div class="sec__head rv">
+    <p class="eyebrow">Results from the notebooks</p>
+    <h2>The best paradigm depends on the modality</h2>
+    <p class="lede">Both halves of the tutorial use the <strong>same downstream task and the same evaluation
+    protocol</strong> — a frozen encoder, a linear probe, and accuracy. Holding the yardstick fixed is what
+    makes the two tables comparable: the differences below are attributable to the modality, not the metric.</p>
+  </div>
+
+  <div class="finding rv">
+    <h3>The ranking flips between the two domains</h3>
+    <p>On EuroSAT imagery, <strong>contrastive learning wins</strong> (93.8%) and DINO trails at 84.6%. On UCR
+    time series the order reverses — <strong>DINO leads</strong> at 93.9% while contrastive reaches 91.0%.
+    The same three mechanisms, the same protocol, opposite conclusions. This is the tutorial's central point:
+    the paradigm is chosen by the structure of the data, not by which method is most recent.</p>
+  </div>
+
+  <div class="toggle rv" role="tablist" aria-label="Choose modality">
+    <button role="tab" id="tab-rs" aria-selected="true" data-mode="rs">Remote sensing</button>
+    <button role="tab" id="tab-ts" aria-selected="false" data-mode="ts">Time series</button>
+  </div>
+
+  <div class="charts rv">
+    <div class="two-col">
+      <div class="chart">
+        <div class="chart__hd">
+          <h3>Linear-probe accuracy by paradigm</h3>
+          <p id="sub-bars">—</p>
+        </div>
+        <div class="chart__body"><div id="chart-bars"></div></div>
+        <div class="chart__legend" id="lg-bars"></div>
+      </div>
+
+      <div class="chart">
+        <div class="chart__hd">
+          <h3>Accuracy under a shrinking label budget</h3>
+          <p id="sub-few">—</p>
+        </div>
+        <div class="chart__body"><div id="chart-few"></div></div>
+        <div class="chart__legend" id="lg-few"></div>
+      </div>
+    </div>
+
+    <div class="chart">
+      <div class="chart__hd">
+        <h3>More unlabeled pretraining data keeps paying off</h3>
+        <p>Contrastive encoders pretrained on growing fractions of the SeCo corpus, each for a fixed 20 000 steps, then probed on EuroSAT</p>
+      </div>
+      <div class="chart__body"><div id="chart-scaling"></div></div>
+      <div class="chart__legend" id="lg-scaling"></div>
+    </div>
+  </div>
+
+  <figure class="fig rv" style="margin-top:clamp(24px,3vw,34px)">
+    <div class="fig__frame">
+      <img src="assets/img/tsne_encoders.png" alt="t-SNE projections of EuroSAT features from the random, contrastive, MAE and DINO encoders, showing increasingly separated class clusters." loading="lazy">
+    </div>
+    <figcaption><b>Figure 3.</b> t-SNE of frozen EuroSAT features. Pretraining separates the classes that a
+    randomly initialized encoder leaves entangled — the visual counterpart of the probe accuracies above.</figcaption>
+  </figure>
+</section>
+
+<!-- ================= COMPARISON ================= -->
+<section class="sec sec--rule wrap" id="compare">
+  <div class="sec__head rv">
+    <p class="eyebrow">Reference</p>
+    <h2>Paradigms across both modalities</h2>
+    <p class="lede">Reading the table column-wise exposes which design decisions transfer between spatial and
+    temporal data, and which the modality forces you to change.</p>
+  </div>
+
+  <div class="toggle rv" role="tablist" aria-label="Filter table rows">
+    <button role="tab" aria-selected="true" data-filter="all">Both modalities</button>
+    <button role="tab" aria-selected="false" data-filter="rs">Remote sensing</button>
+    <button role="tab" aria-selected="false" data-filter="ts">Time series</button>
+  </div>
+
+  <div class="tbl-wrap rv">
+    <table class="cmp">
+      <thead>
+        <tr>
+          <th scope="col"></th>
+          <th scope="col" class="k-con">Contrastive</th>
+          <th scope="col" class="k-mask">Masked autoencoder</th>
+          <th scope="col" class="k-dist">Teacher–student</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr data-row="all">
+          <th scope="row">Mechanism</th>
+          <td>InfoNCE over positive / negative pairs</td>
+          <td>Masked reconstruction</td>
+          <td>EMA target, stop-gradient, centering</td>
+        </tr>
+        <tr data-row="all">
+          <th scope="row">Semantic goal</th>
+          <td>Global instance invariance</td>
+          <td>Local reconstruction</td>
+          <td>Invariant representations without negatives</td>
+        </tr>
+        <tr data-row="rs">
+          <th scope="row">Remote sensing</th>
+          <td>MoCo, SimCLR, SeCo, SaCo, PIMC</td>
+          <td>MAE, SatMAE, Scale-MAE</td>
+          <td>DINO, DINOv2, I-JEPA</td>
+        </tr>
+        <tr data-row="ts">
+          <th scope="row">Time series</th>
+          <td>TS2Vec, TS-TCC, TF-C</td>
+          <td>Ti-MAE, TimeMAE, SimMTM, PatchTST, Presto</td>
+          <td>HiMTM, DE-TSMCL, TS-JEPA</td>
+        </tr>
+        <tr data-row="rs">
+          <th scope="row">This tutorial · RS</th>
+          <td><span class="num">93.8%</span> — best on EuroSAT</td>
+          <td><span class="num">91.3%</span></td>
+          <td><span class="num">84.6%</span></td>
+        </tr>
+        <tr data-row="ts">
+          <th scope="row">This tutorial · TS</th>
+          <td><span class="num">91.0%</span></td>
+          <td><span class="num">90.2%</span></td>
+          <td><span class="num">93.9%</span> — best on UCR</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ================= NOTEBOOKS ================= -->
+<section class="sec sec--rule wrap" id="notebooks">
+  <div class="sec__head rv">
+    <p class="eyebrow">Hands-on</p>
+    <h2>Ten notebooks, two modalities</h2>
+    <p class="lede">The time-series half mirrors the remote-sensing half one-to-one: the same three mechanisms,
+    the same teaching pattern, the same evaluation. Each notebook runs end-to-end on Colab — with pretrained
+    checkpoints when available, and a short live-training fallback when not.</p>
+  </div>
+
+  <div class="code rv">
+    <div class="code__hd">
+      <span>Run locally</span>
+      <button class="copy" data-copy="setup">Copy</button>
+    </div>
+<pre id="setup"><span class="c"># the pretrained encoders are committed via Git LFS -- install it first</span>
+git lfs install
+git clone https://github.com/lstival/ssl_tutorial_sibgrapi2026.git
+<span class="k">cd</span> ssl_tutorial_sibgrapi2026
+pip install -r requirements.txt
+
+<span class="c"># confirm every encoder arrived intact</span>
+python tools/verify_assets.py --local
+
+<span class="c"># launch — datasets download on first run</span>
+<span class="k">cd</span> notebooks/time_series   <span class="c"># or notebooks/remote_sensing</span>
+jupyter notebook 00_setup_and_data.ipynb</pre>
+  </div>
+
+  <div id="nbMount"></div>
+</section>
+
+<!-- ================= MODELS ================= -->
+<section class="sec sec--rule wrap" id="models">
+  <div class="sec__head rv">
+    <p class="eyebrow">Pretrained encoders</p>
+    <h2>Checkpoints</h2>
+    <p class="lede">Encoders pretrained offline on the large unlabeled corpora — Sentinel-2 tiles from SeCo for
+    remote sensing, the pooled 128-dataset UCR archive for time series. The notebooks download these
+    automatically; nothing needs to be fetched by hand.</p>
+  </div>
+
+  <div class="models rv">
+    <table class="mdl">
+      <thead>
+        <tr><th>Checkpoint</th><th>Paradigm</th><th>Modality</th><th>Backbone</th><th>Pretraining corpus</th><th>Size</th></tr>
+      </thead>
+      <tbody id="mdlMount"></tbody>
+    </table>
+  </div>
+
+  <div class="code rv">
+    <div class="code__hd">
+      <span>Load an encoder</span>
+      <button class="copy" data-copy="load">Copy</button>
+    </div>
+<pre id="load"><span class="k">from</span> tutorial_rs <span class="k">import</span> build_vit_s8, try_load_checkpoint, get_device
+
+device = get_device()
+encoder = build_vit_s8().to(device)
+
+<span class="c"># finds it in the clone, or downloads it from this repo on Colab</span>
+try_load_checkpoint(encoder, <span class="s">"artifacts/remote_sensing/checkpoints"</span>,
+                    <span class="s">"contrastive_vit_s8.pt"</span>, device)
+encoder.eval()
+
+<span class="c"># frozen features for a linear probe</span>
+feats = encoder(images)  <span class="c"># (B, 384)</span></pre>
+  </div>
+
+  <div class="note rv" id="statusNote">
+    <b>Note</b>
+    <span id="statusText">The encoders are committed to the repository with Git LFS, so a clone carries the
+    weights with it and the notebooks run offline. Every number on this page is generated from the tutorial's
+    own result files.</span>
+  </div>
+</section>
+
+<!-- ================= CITE ================= -->
+<section class="sec sec--rule wrap" id="cite">
+  <div class="sec__head rv">
+    <p class="eyebrow">Citation</p>
+    <h2>Cite this tutorial</h2>
+  </div>
+  <div class="code rv">
+    <div class="code__hd">
+      <span>BibTeX</span>
+      <button class="copy" data-copy="bib">Copy</button>
+    </div>
+<pre id="bib">@inproceedings{stival2026ssl,
+  title     = {Self-Supervised Learning: Contrastive, Masking, and Distillation Methods},
+  author    = {Stival, Leandro and Zhang, Chao and da Silva Torres, Ricardo},
+  booktitle = {Proceedings of the 39th SIBGRAPI Conference on Graphics, Patterns and Images},
+  year      = {2026},
+  publisher = {IEEE}
+}</pre>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot wrap">
+  <div class="foot__grid">
+    <div>
+      <h4>The tutorial</h4>
+      <p>A three-hour SIBGRAPI 2026 tutorial on self-supervised learning, built around one question: which
+      paradigm should you choose for a given downstream objective?</p>
+      <p style="font-family:var(--ff-mono);font-size:.76rem;color:var(--ink-3)">leandro.stival@wur.nl</p>
+    </div>
+    <div>
+      <h4>Resources</h4>
+      <ul>
+        <li><a href="#notebooks">Notebooks</a></li>
+        <li><a href="#models">Pretrained encoders</a></li>
+        <li><a href="#results">Results</a></li>
+        <li><a id="footRepo" href="#" rel="noopener">GitHub repository ↗</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Datasets</h4>
+      <ul>
+        <li><a href="https://github.com/phelber/EuroSAT" rel="noopener">EuroSAT ↗</a></li>
+        <li><a href="https://www.cs.ucr.edu/~eamonn/time_series_data_2018/" rel="noopener">UCR archive ↗</a></li>
+        <li><a href="https://github.com/ServiceNow/seasonal-contrast" rel="noopener">SeCo corpus ↗</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot__btm">
+    <span>Artificial Intelligence Group · Wageningen University &amp; Research</span>
+    <span>EU Horizon “AI Foundation Models in Agricultural Sciences” · grant 101293777</span>
+    <span>© 2026</span>
+  </div>
+</footer>
+
+<script src="assets/js/content.js"></script>
+<script src="assets/js/charts.js"></script>
+<script src="assets/js/site.js"></script>
+</body>
+</html>

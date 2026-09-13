@@ -1,0 +1,11 @@
+{
+  "step": 15000,
+  "loss": 1.0919018983840942,
+  "mechanism": "contrastive",
+  "temperature": 0.1,
+  "batch_size": 256,
+  "corpus": "ucr",
+  "n_datasets": 128,
+  "n_series": 45192,
+  "steps_total": 15000
+}

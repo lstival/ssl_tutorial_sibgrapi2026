@@ -1,0 +1,7 @@
+best_value 0.7937037037037037
+lr 0.00013753517637131346
+mask_ratio 0.6413571689505717
+weight_decay 0.03819914306586099
+decoder_depth 2
+decoder_dim 192
+batch_size 256

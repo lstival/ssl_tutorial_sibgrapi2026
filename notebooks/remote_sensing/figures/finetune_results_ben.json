@@ -1,0 +1,128 @@
+{
+  "contrastive_ben": {
+    "checkpoint": "contrastive_vit_s8_ben.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.8285185185185185,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 144.4,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.8637037037037038,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 133.8,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.9522222222222222,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 136.2,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  },
+  "mae_ben": {
+    "checkpoint": "mae_vit_s8_ben.pt",
+    "arch": "vit_s8",
+    "pool": "mean",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.7075925925925926,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 125.5,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.7507407407407407,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 134.5,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.9335185185185185,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 137.8,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  },
+  "dino_ben": {
+    "checkpoint": "dino_vit_s8_ben.pt",
+    "arch": "vit_s8",
+    "pool": "cls",
+    "epochs": 15,
+    "full_label": {
+      "frozen": {
+        "accuracy": 0.7379629629629629,
+        "lr": 0.001,
+        "trainable_encoder_params": 0,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.0,
+        "train_seconds": 121.6,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "bitfit": {
+        "accuracy": 0.7892592592592592,
+        "lr": 0.0005,
+        "trainable_encoder_params": 26112,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 0.002429699503340837,
+        "train_seconds": 135.8,
+        "epochs": 15,
+        "total_steps": 1260
+      },
+      "full": {
+        "accuracy": 0.9344444444444444,
+        "lr": 0.0001,
+        "trainable_encoder_params": 10747008,
+        "encoder_params": 10747008,
+        "head_params": 3850,
+        "trainable_fraction": 1.0,
+        "train_seconds": 138.1,
+        "epochs": 15,
+        "total_steps": 1260
+      }
+    },
+    "few_label": {}
+  }
+}

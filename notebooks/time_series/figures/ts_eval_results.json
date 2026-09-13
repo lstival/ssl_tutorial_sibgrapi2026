@@ -1,0 +1,163 @@
+{
+  "target": "SwedishLeaf",
+  "series_len": 128,
+  "n_classes": 15,
+  "n_train": 500,
+  "n_test": 625,
+  "label_budgets": [
+    1,
+    2,
+    5,
+    10,
+    20
+  ],
+  "full_label": {
+    "contrastive": {
+      "accuracy": 0.9104,
+      "pool": "cls",
+      "by_readout": {
+        "cls": 0.9104,
+        "mean": 0.9136
+      },
+      "checkpoint_meta": {
+        "step": 15000,
+        "loss": 1.0919018983840942,
+        "mechanism": "contrastive",
+        "temperature": 0.1,
+        "batch_size": 256,
+        "corpus": "ucr",
+        "n_datasets": 128,
+        "n_series": 45192,
+        "steps_total": 15000
+      }
+    },
+    "mae": {
+      "accuracy": 0.9024,
+      "pool": "mean",
+      "by_readout": {
+        "cls": 0.8976,
+        "mean": 0.9024
+      },
+      "checkpoint_meta": {
+        "step": 15000,
+        "loss": 0.42783933877944946,
+        "mechanism": "mae",
+        "mask_ratio": 0.5,
+        "norm_pix": true,
+        "corpus": "ucr",
+        "n_datasets": 128,
+        "n_series": 45192,
+        "steps_total": 15000
+      }
+    },
+    "dino": {
+      "accuracy": 0.9392,
+      "pool": "cls",
+      "by_readout": {
+        "cls": 0.9392,
+        "mean": 0.9152
+      },
+      "checkpoint_meta": {
+        "step": 15000,
+        "loss": 1.5078233480453491,
+        "mechanism": "dino",
+        "entropy": 0.3679727613925934,
+        "corpus": "ucr",
+        "n_datasets": 128,
+        "n_series": 45192,
+        "steps_total": 15000
+      }
+    }
+  },
+  "few_label": {
+    "contrastive": {
+      "1": 0.5776,
+      "2": 0.7296,
+      "5": 0.816,
+      "10": 0.872,
+      "20": 0.8832
+    },
+    "mae": {
+      "1": 0.4832,
+      "2": 0.5792,
+      "5": 0.7152,
+      "10": 0.8272,
+      "20": 0.8624
+    },
+    "dino": {
+      "1": 0.5904,
+      "2": 0.7456,
+      "5": 0.848,
+      "10": 0.8848,
+      "20": 0.9296
+    }
+  },
+  "transfer": {
+    "contrastive": {
+      "FaceAll": 0.7331360946745562,
+      "ECG5000": 0.9382222222222222,
+      "Trace": 1.0,
+      "Plane": 1.0,
+      "SyntheticControl": 0.9966666666666667,
+      "GunPoint": 0.9866666666666667,
+      "OSULeaf": 0.7396694214876033,
+      "Fish": 0.9142857142857143
+    },
+    "mae": {
+      "FaceAll": 0.6597633136094675,
+      "ECG5000": 0.9295555555555556,
+      "Trace": 1.0,
+      "Plane": 0.9904761904761905,
+      "SyntheticControl": 0.93,
+      "GunPoint": 0.98,
+      "OSULeaf": 0.6570247933884298,
+      "Fish": 0.8457142857142858
+    },
+    "dino": {
+      "FaceAll": 0.7142011834319527,
+      "ECG5000": 0.9375555555555556,
+      "Trace": 1.0,
+      "Plane": 0.9904761904761905,
+      "SyntheticControl": 0.9833333333333333,
+      "GunPoint": 0.9733333333333334,
+      "OSULeaf": 0.7479338842975206,
+      "Fish": 0.8628571428571429
+    },
+    "random_init": {
+      "FaceAll": 0.6301775147928994,
+      "ECG5000": 0.9335555555555556,
+      "Trace": 0.83,
+      "Plane": 0.9714285714285714,
+      "SyntheticControl": 0.9,
+      "GunPoint": 0.88,
+      "OSULeaf": 0.5413223140495868,
+      "Fish": 0.7314285714285714
+    }
+  },
+  "readout": {
+    "contrastive": {
+      "cls": 0.9104,
+      "mean": 0.9136
+    },
+    "mae": {
+      "cls": 0.8976,
+      "mean": 0.9024
+    },
+    "dino": {
+      "cls": 0.9392,
+      "mean": 0.9152
+    }
+  },
+  "random_init": {
+    "accuracy": 0.8,
+    "few_label": {
+      "1": 0.3376,
+      "2": 0.44,
+      "5": 0.5792,
+      "10": 0.7072,
+      "20": 0.7792
+    }
+  },
+  "nn_euclidean": 0.7888,
+  "supervised": 0.872
+}

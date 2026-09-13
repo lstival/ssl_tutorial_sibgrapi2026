@@ -1,0 +1,9 @@
+{
+  "step": 40000,
+  "loss": 0.36166536808013916,
+  "mechanism": "contrastive",
+  "temperature": 0.1289,
+  "arch": "vit_s8",
+  "batch_size": 256,
+  "img_size": 64
+}

@@ -1,0 +1,43 @@
+# Tooling configuration for the SIBGRAPI 2026 SSL Tutorial repository.
+#
+# This project is NOT a pip-installable package -- the notebooks download the single shared
+# module they need at run time, so there is no
+# [build-system] / [project] table here on purpose. This file only configures the dev tools.
+#
+#   ruff check .            -- lint (kept passing)
+#   ruff format .           -- restyle src/ + tools/ (run deliberately, not part of CI yet;
+#                              the existing hand-formatting is close but not identical)
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Lint the real source under src/ and the helper tools. The teaching notebooks are
+# intentionally not linted: they import broadly in the first cell for later cells to use,
+# rebind names across cells, and keep loop counters visible for pedagogy -- all of which a
+# linter flags but none of which are defects here.
+include = ["src/**/*.py", "tools/**/*.py", "*.py"]
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort (import ordering)
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "W",   # pycodestyle warnings
+]
+ignore = [
+    "E501",  # line length is enforced by the formatter, not the linter
+    "B008",  # function calls in argument defaults -- common and fine for argparse/torch
+    "E402",  # module-import-not-at-top: the scripts insert sys.path before importing common
+    "E702",  # multiple statements per line: used deliberately for compact eval/probe loops
+    "B905",  # zip() without strict=: fine where lengths are known equal
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks legitimately "import *" from the shared module and re-bind names across cells.
+"*.ipynb" = ["F403", "F405", "E402", "F811"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tutorial_rs", "tutorial_ts"]

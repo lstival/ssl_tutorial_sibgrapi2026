@@ -1,0 +1,22 @@
+# Normalize line endings: the repo is developed on Windows but runs on Colab (Linux).
+# Text files are stored with LF in the repo and checked out with the platform's native EOL.
+* text=auto eol=lf
+# Windows-only helper scripts keep CRLF.
+*.ps1 text eol=crlf
+# Treat notebooks as text so diffs work, but don't let editors reformat them.
+*.ipynb text eol=lf
+# --- Git LFS -------------------------------------------------------------------------
+# The pretrained encoders (~294 MB across 10 files) are committed so that a clone of this
+# repository is self-contained: code + notebooks + weights, no external release to fetch.
+# They are stored in LFS rather than as plain blobs to keep the git history usable.
+#
+# NOTE for anyone cloning: you need git-lfs installed, otherwise the .pt files arrive as
+# ~130-byte pointer text files and torch.load will fail. See README.md ("Cloning").
+*.pt filter=lfs diff=lfs merge=lfs -text
+# Binary assets -- never touch.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.pth binary
+*.npz binary
+*.npy binary
