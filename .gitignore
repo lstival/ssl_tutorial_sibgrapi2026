@@ -2,6 +2,9 @@
 .claude/
 
 # Python
+# Local scratch: a symlink to the shared virtualenv used by the SLURM pretraining jobs.
+.venv_seco
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,7 +13,9 @@ __pycache__/
 
 # Downloaded datasets (multi-GB; every loader re-downloads them on first use --
 # EuroSAT via torchvision + mirrors, the UCR archive and the SeCo tiles likewise).
-data/
+# No trailing slash: on this cluster data/ is a symlink to a shared copy, and a "data/"
+# pattern matches only a real directory, never a symlink.
+data
 
 # Training run logs
 *.jsonl
