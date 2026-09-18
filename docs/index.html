@@ -416,16 +416,11 @@
       <span>Run locally</span>
       <button class="copy" data-copy="setup">Copy</button>
     </div>
-<pre id="setup"><span class="c"># the pretrained encoders are committed via Git LFS -- install it first</span>
-git lfs install
-git clone https://github.com/lstival/ssl_tutorial_sibgrapi2026.git
+<pre id="setup">git clone https://github.com/lstival/ssl_tutorial_sibgrapi2026.git
 <span class="k">cd</span> ssl_tutorial_sibgrapi2026
 pip install -r requirements.txt
 
-<span class="c"># confirm every encoder arrived intact</span>
-python tools/verify_assets.py --local
-
-<span class="c"># launch — datasets download on first run</span>
+<span class="c"># launch — datasets and pretrained encoders download on first run</span>
 <span class="k">cd</span> notebooks/time_series   <span class="c"># or notebooks/remote_sensing</span>
 jupyter notebook 00_setup_and_data.ipynb</pre>
   </div>
@@ -473,8 +468,8 @@ feats = encoder(images)  <span class="c"># (B, 384)</span></pre>
 
   <div class="note rv" id="statusNote">
     <b>Note</b>
-    <span id="statusText">The encoders are committed to the repository with Git LFS, so a clone carries the
-    weights with it and the notebooks run offline. Every number on this page is generated from the tutorial's
+    <span id="statusText">The encoders are published as assets on the repository's GitHub Release, and the
+    notebooks download them on first use. Every number on this page is generated from the tutorial's
     own result files.</span>
   </div>
 </section>

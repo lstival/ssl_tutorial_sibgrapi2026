@@ -442,22 +442,21 @@ def build_vit_t8(**kwargs):
 # Checkpoint / precomputed-output downloader
 # =====================================================================================
 
-# The pretrained encoders are *committed to this repository* via Git LFS, under
-# `artifacts/remote_sensing/checkpoints/`. There is no external release to publish and no tag
-# to bump: a clone (with git-lfs installed) already has every weight these notebooks load.
+# The pretrained encoders are published as assets on a GitHub Release (tag
+# `WEIGHTS_RELEASE_TAG` below), not committed to the repository. Release assets have no
+# bandwidth quota for public repos -- unlike Git LFS's 1 GB/month free tier, which is what
+# previously made these downloads start 404ing after only a few clones or Colab runs.
 #
 # Two ways a notebook finds them, in this order:
-#   1. On disk, relative to the notebook -- the local-clone path, and the only path used offline.
-#   2. Downloaded from this repository over HTTPS -- the Colab path, where only the .ipynb is
-#      present. LFS-backed files are served by media.githubusercontent.com; the plain
-#      raw.githubusercontent.com URL returns the ~130-byte *pointer file* instead of the
-#      tensor, which is why `_looks_like_lfs_pointer` below rejects it loudly rather than
-#      letting torch.load fail with an opaque unpickling error.
+#   1. On disk, relative to the notebook -- the local-clone path, used if the weights were
+#      fetched there already (e.g. by tools/release_weights.sh or a manual download).
+#   2. Downloaded from the release over HTTPS -- the Colab path, where only the .ipynb is
+#      present.
 GITHUB_REPO = "lstival/ssl_tutorial_sibgrapi2026"
-GITHUB_BRANCH = "main"
+WEIGHTS_RELEASE_TAG = "weights-v1"
 CHECKPOINT_REPO_PATH = "artifacts/remote_sensing/checkpoints"
 CHECKPOINT_BASE_URL = (
-    f"https://media.githubusercontent.com/media/{GITHUB_REPO}/{GITHUB_BRANCH}/{CHECKPOINT_REPO_PATH}/"
+    f"https://github.com/{GITHUB_REPO}/releases/download/{WEIGHTS_RELEASE_TAG}/"
 )
 PRECOMPUTED_BASE_URL = CHECKPOINT_BASE_URL
 
@@ -472,10 +471,10 @@ def _looks_like_lfs_pointer(file_path):
     """
     True if `file_path` is a Git LFS pointer file rather than real tensor data.
 
-    This happens in two ordinary situations, and both are confusing to debug from the
-    exception torch.load would otherwise raise: cloning without git-lfs installed, and
-    downloading an LFS-backed file from raw.githubusercontent.com instead of the media host.
-    A pointer is a small text file that starts with a known version line.
+    A leftover from before the weights moved to a GitHub Release: a clone from before that
+    change may still have LFS pointer files on disk (if git-lfs wasn't installed) rather than
+    the tensors themselves. A pointer is a small text file that starts with a known version
+    line; catching it here turns a confusing torch.load unpickling error into a clear message.
     """
     try:
         if os.path.getsize(file_path) > 1024:
@@ -535,10 +534,7 @@ def download_files(file_names, checkpoint_path, base_url=CHECKPOINT_BASE_URL):
             urllib.request.urlretrieve(file_url, file_path)
             if _looks_like_lfs_pointer(file_path):
                 os.remove(file_path)
-                print(
-                    f"  Got a Git LFS pointer instead of {file_name}. The download URL must "
-                    f"point at media.githubusercontent.com, not raw.githubusercontent.com."
-                )
+                print(f"  Got a Git LFS pointer instead of {file_name} from {file_url}.")
         except HTTPError as e:
             print(
                 f"Could not download {file_name} ({e}). "

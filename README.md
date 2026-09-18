@@ -15,9 +15,10 @@ Holding the task fixed across both hours is deliberate: it is what lets the two 
 read side by side, so the differences between them are attributable to the *modality* rather
 than to the yardstick.
 
-**This repository is self-contained.** Code, notebooks, and the pretrained encoders all live
-here — the weights are committed via Git LFS, so a clone can run every notebook without
-fetching anything from an external release.
+**This repository is self-contained.** Code and notebooks live here; the pretrained encoders
+are published as assets on a [GitHub Release](https://github.com/lstival/ssl_tutorial_sibgrapi2026/releases/tag/weights-v1)
+(`weights-v1`) and downloaded on demand, so a clone or a Colab run can execute every notebook
+without training from scratch.
 
 ## Quick start
 
@@ -25,27 +26,28 @@ fetching anything from an external release.
 
 Open any notebook with its "Open in Colab" badge and run all cells. The first code cell
 downloads the one shared module it needs (`tutorial_rs.py` / `tutorial_ts.py`); the pretrained
-encoders are downloaded on demand from this repository. Nothing to install.
+encoders are downloaded on demand from the [weights release](https://github.com/lstival/ssl_tutorial_sibgrapi2026/releases/tag/weights-v1).
+Nothing to install.
 
 ### Local
 
-The encoders are stored in **Git LFS**, so install it *before* cloning — otherwise the `.pt`
-files arrive as ~130-byte pointer files and `torch.load` fails:
-
 ```bash
-git lfs install
 git clone https://github.com/lstival/ssl_tutorial_sibgrapi2026.git
 cd ssl_tutorial_sibgrapi2026
 pip install -r requirements.txt
-
-# confirm all ten encoders arrived intact (not pointers, right sizes)
-python tools/verify_assets.py --local
 
 cd notebooks/time_series          # or notebooks/remote_sensing
 jupyter notebook 00_setup_and_data.ipynb
 ```
 
-If you already cloned without LFS, `git lfs install && git lfs pull` fixes it in place.
+The first notebook in each track downloads the pretrained encoders it needs from the
+[weights release](https://github.com/lstival/ssl_tutorial_sibgrapi2026/releases/tag/weights-v1)
+the first time it runs, and reuses them afterwards. To fetch all ten encoders ahead of time
+(e.g. for an offline tutorial session), run:
+
+```bash
+python tools/verify_assets.py --remote   # confirm the release assets are reachable
+```
 
 Datasets are *not* committed (they are multi-GB) and download themselves on first use: EuroSAT
 via torchvision with mirror fallback, and the UCR archive (~316 MB) from its official host.
@@ -55,14 +57,14 @@ via torchvision with mirror fallback, and the UCR archive (~316 MB) from its off
 `tools/verify_assets.py` checks every encoder the notebooks load, from both directions:
 
 ```bash
-python tools/verify_assets.py            # clone + download URLs
-python tools/verify_assets.py --local    # clone only, no network
-python tools/verify_assets.py --remote   # download URLs only
+python tools/verify_assets.py            # local copy + release download URLs
+python tools/verify_assets.py --local    # local copy only, no network
+python tools/verify_assets.py --remote   # release download URLs only
 ```
 
-The remote check is what to run after pushing: it confirms GitHub serves the real tensors
-rather than LFS pointer files. Each notebook also carries a small self-test cell that reports
-which encoders are on disk or downloadable before any training starts.
+The remote check confirms the GitHub Release serves the real tensors, not a 404. Each notebook
+also carries a small self-test cell that reports which encoders are on disk or downloadable
+before any training starts.
 
 ## Repository layout
 
@@ -88,10 +90,11 @@ src/
     ├── tutorial_ts.py          Shared UCR data, patch-Transformer, linear probe, checkpoint loader
     └── pretraining/            Offline SSL pretraining on the pooled 128-dataset UCR corpus
 
-artifacts/<domain>/checkpoints/ Pretrained encoders (Git LFS) -- committed, see below
+artifacts/<domain>/checkpoints/ Pretrained encoders -- downloaded from the weights release, see below
 site/                           The tutorial website (GitHub Pages)
 tools/
 ├── make_skeleton.py            Generates *_skeleton.ipynb from the filled notebooks
+├── release_weights.sh          Uploads the encoders to the GitHub Release (maintainers only)
 └── verify_assets.py            Checks every encoder is present locally and downloadable
 ```
 

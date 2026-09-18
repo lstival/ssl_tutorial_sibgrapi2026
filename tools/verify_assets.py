@@ -1,21 +1,22 @@
 """
 Verify that every pretrained encoder this tutorial loads is actually obtainable.
 
-The notebooks get their weights one of two ways: from the local clone (Git LFS), or, on
-Colab, over HTTPS from this repository. This script checks both, so a broken link is found
-here rather than in front of a room.
+The notebooks get their weights one of two ways: from an on-disk copy (if one was fetched
+there already, e.g. by tools/release_weights.sh), or, on Colab, over HTTPS from the GitHub
+Release named by WEIGHTS_RELEASE_TAG. This script checks both, so a broken link is found here
+rather than in front of a room.
 
-    python tools/verify_assets.py              # check the clone, then the remote URLs
-    python tools/verify_assets.py --local      # clone only (no network)
+    python tools/verify_assets.py              # check the local copy, then the release URLs
+    python tools/verify_assets.py --local      # local copy only (no network)
     python tools/verify_assets.py --remote     # URLs only
-    python tools/verify_assets.py --branch dev # check a branch other than main
+    python tools/verify_assets.py --tag TAG    # check a release other than the default
 
 Exit status is 0 only if every requested check passed, so this is usable in CI.
 
-Note on the remote check: the weights are stored in Git LFS, which GitHub serves from
-media.githubusercontent.com. A plain raw.githubusercontent.com URL returns the ~130-byte LFS
-*pointer file* rather than the tensor -- the check below treats that as a failure, because a
-notebook that downloads a pointer fails later with an opaque unpickling error.
+Note: the weights used to be committed via Git LFS, which is capped at 1 GB/month of free
+download bandwidth per repo -- a handful of clones or Colab runs exhausted it, after which
+media.githubusercontent.com started 404ing. GitHub Release assets have no such quota, which is
+why they replaced LFS as the distribution mechanism.
 """
 
 import argparse
@@ -25,6 +26,7 @@ import urllib.error
 import urllib.request
 
 REPO = "lstival/ssl_tutorial_sibgrapi2026"
+DEFAULT_TAG = "weights-v1"
 
 # (repo-relative directory, file name, approximate expected size in bytes)
 # Sizes are the committed ones; the check is a loose sanity bound, not an equality test.
@@ -55,23 +57,23 @@ def is_pointer(head_bytes, size):
 
 
 def check_local(directory, name, expected):
-    """Check the file in the clone: present, real data (not an LFS pointer), right size."""
+    """Check the file on disk: present, real data (not a stale LFS pointer), right size."""
     path = os.path.join(REPO_ROOT, directory, name)
     if not os.path.isfile(path):
-        return False, "missing from the clone"
+        return False, "not present locally (fetched on demand, or run tools/release_weights.sh)"
     size = os.path.getsize(path)
     with open(path, "rb") as f:
         head = f.read(64)
     if is_pointer(head, size):
-        return False, "Git LFS pointer -- run `git lfs pull`"
+        return False, "stale Git LFS pointer -- delete it, it will be re-downloaded"
     if abs(size - expected) > max(4096, expected * 0.02):
         return False, f"unexpected size {mb(size)} (expected ~{mb(expected)})"
     return True, mb(size)
 
 
-def check_remote(directory, name, expected, branch):
-    """Check that the Colab download URL serves the real tensor, not a pointer or a 404."""
-    url = f"https://media.githubusercontent.com/media/{REPO}/{branch}/{directory}/{name}"
+def check_remote(directory, name, expected, tag):
+    """Check that the release download URL serves the real tensor, not a pointer or a 404."""
+    url = f"https://github.com/{REPO}/releases/download/{tag}/{name}"
     req = urllib.request.Request(url, headers={"User-Agent": "ssl-tutorial-verify"})
     try:
         # Read only the first bytes: enough to tell a pointer from a torch archive, and it
@@ -107,9 +109,9 @@ def run(title, check):
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--local", action="store_true", help="check the clone only (no network)")
+    p.add_argument("--local", action="store_true", help="check the on-disk copy only (no network)")
     p.add_argument("--remote", action="store_true", help="check the download URLs only")
-    p.add_argument("--branch", default="main", help="branch to check remotely (default: main)")
+    p.add_argument("--tag", default=DEFAULT_TAG, help=f"release tag to check (default: {DEFAULT_TAG})")
     args = p.parse_args()
 
     # Neither flag given means both checks.
@@ -118,17 +120,18 @@ def main():
 
     failures = 0
     if do_local:
-        failures += run("Local clone (Git LFS)", check_local)
+        failures += run("Local copy", check_local)
     if do_remote:
         failures += run(
-            f"Download URLs (branch: {args.branch})",
-            lambda d, n, e: check_remote(d, n, e, args.branch),
+            f"Download URLs (release: {args.tag})",
+            lambda d, n, e: check_remote(d, n, e, args.tag),
         )
 
     if failures:
         print(f"\n{failures} check(s) failed.")
-        print("If the remote checks failed, confirm the branch is pushed and `git lfs push`")
-        print("has uploaded the objects. Local failures usually mean `git lfs pull` is needed.")
+        print("If the remote checks failed, confirm the release/tag exists and the assets were")
+        print("uploaded (tools/release_weights.sh). Local failures just mean the file isn't")
+        print("on disk yet -- the notebooks download it on demand.")
     else:
         print("\nAll checks passed.")
     return 1 if failures else 0

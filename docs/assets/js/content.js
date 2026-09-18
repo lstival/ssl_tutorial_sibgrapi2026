@@ -7,8 +7,8 @@ const BRANCH = "main";
 
 /* "pending" = code repo not public yet -> links render disabled.
    "live"    = everything resolves normally.
-   The repository is public and the weights are committed to it (Git LFS), so the
-   notebook/Colab/checkpoint links below all resolve. */
+   The repository is public and the weights are published on its "weights-v1" GitHub
+   Release, so the notebook/Colab/checkpoint links below all resolve. */
 const SITE_STATUS = "live";
 
 const GH = `https://github.com/${REPO}`;
@@ -60,8 +60,8 @@ const NOTEBOOKS = {
   }
 };
 
-/* Committed to the repository under artifacts/<domain>/checkpoints/ via Git LFS -- the
-   notebooks load them from the clone, or download them from this repo on Colab. */
+/* Published as assets on the "weights-v1" GitHub Release -- the notebooks download them
+   from there on demand, on Colab or locally. */
 const MODELS = [
   { k:"con",  n:"contrastive_vit_s8.pt", p:"Contrastive", m:"Remote sensing", a:"ViT-S/8",  d:"SeCo 100k", s:"42 MB" },
   { k:"mask", n:"mae_vit_s8.pt",         p:"Masking",     m:"Remote sensing", a:"ViT-S/8",  d:"SeCo 100k", s:"42 MB" },

@@ -29,9 +29,9 @@ artifacts/**/run_logs/
 # Optuna study databases from the offline hyper-parameter searches.
 *.db
 
-# --- deliberately NOT ignored -------------------------------------------------------
-# artifacts/**/checkpoints/*.pt are committed via Git LFS so that a fresh clone can run
-# every notebook offline. See .gitattributes and README.md.
+# Pretrained encoders: published as GitHub Release assets (tools/release_weights.sh),
+# not committed. A local clone/download of one lands here and should stay untracked.
+artifacts/**/checkpoints/*.pt
 
 # --- not part of the published code ---------------------------------------------------
 # These stay on disk for local work but are deliberately out of the repository: the

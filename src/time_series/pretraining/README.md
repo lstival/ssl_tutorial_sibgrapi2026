@@ -111,17 +111,19 @@ and DINO, `mean` for MAE (whose loss never touches the `[CLS]` token).
 
 ## 4. Publish the checkpoints for the notebooks
 
-Copy the trained `*_ts_encoder.pt` files into `artifacts/time_series/checkpoints/` and commit
-them. They are tracked by Git LFS (see `.gitattributes`), so they travel with the repository
-and Notebooks 1-4 pick them up with the "Found pretrained model, loading..." pattern instead
-of falling back to their built-in short live-training demo.
+Copy the trained `*_ts_encoder.pt` files into `artifacts/time_series/checkpoints/`, then upload
+them to the `weights-v1` GitHub Release (not committed to the repository -- see
+`tools/release_weights.sh`). Once uploaded, Notebooks 1-4 pick them up with the "Found
+pretrained model, loading..." pattern instead of falling back to their built-in short
+live-training demo.
 
     cp <trained>.pt ../../../artifacts/time_series/checkpoints/
-    git add artifacts/time_series/checkpoints/<trained>.pt
-    python ../../../tools/verify_assets.py --local    # confirm it is real data, not a pointer
+    export GITHUB_TOKEN=...    # a token with write access to the repo
+    ../../../tools/release_weights.sh
 
-There is no release to publish and no tag to bump: `CHECKPOINT_BASE_URL` in `../tutorial_ts.py`
-already points at this repository's own LFS storage, which is what Colab downloads from.
+There is no tag to bump unless the release changes: `CHECKPOINT_BASE_URL` in
+`../tutorial_ts.py` already points at `weights-v1`. After uploading,
+`python ../../../tools/verify_assets.py --remote` confirms the download URLs resolve.
 
 ## Design notes
 

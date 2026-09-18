@@ -803,9 +803,10 @@ def subsample_per_class(labels, k, seed=SEED):
 # Checkpoint / precomputed-output downloader
 # =====================================================================================
 
-# The pretrained encoders are *committed to this repository* via Git LFS, under
-# `artifacts/time_series/checkpoints/`. There is no external release to publish and no tag to
-# bump: a clone (with git-lfs installed) already has every weight these notebooks load.
+# The pretrained encoders are published as assets on a GitHub Release (tag
+# `WEIGHTS_RELEASE_TAG` below), not committed to the repository. Release assets have no
+# bandwidth quota for public repos -- unlike Git LFS's 1 GB/month free tier, which is what
+# previously made these downloads start 404ing after only a few clones or Colab runs.
 #
 # These are the UCR-classification encoders: a 128-step series, patch 16, [CLS] readout. The
 # earlier ETT-forecasting checkpoints (512-step lookback, forecasting head) are incompatible
@@ -813,14 +814,14 @@ def subsample_per_class(labels, k, seed=SEED):
 #
 # Two ways a notebook finds them, in this order:
 #   1. On disk, relative to the notebook -- the local-clone path, and the only path used offline.
-#   2. Downloaded from this repository over HTTPS -- the Colab path. LFS-backed files are served
-#      by media.githubusercontent.com; raw.githubusercontent.com returns the ~130-byte *pointer
-#      file* instead of the tensor, which `_looks_like_lfs_pointer` rejects loudly.
+#   2. Downloaded from a GitHub Release over HTTPS -- the Colab path. Release assets have no
+#      bandwidth quota for public repos, unlike Git LFS (1 GB/month free tier, which is what
+#      used to make these downloads 404 once a few people had cloned or run the notebooks).
 GITHUB_REPO = "lstival/ssl_tutorial_sibgrapi2026"
-GITHUB_BRANCH = "main"
+WEIGHTS_RELEASE_TAG = "weights-v1"
 CHECKPOINT_REPO_PATH = "artifacts/time_series/checkpoints"
 CHECKPOINT_BASE_URL = (
-    f"https://media.githubusercontent.com/media/{GITHUB_REPO}/{GITHUB_BRANCH}/{CHECKPOINT_REPO_PATH}/"
+    f"https://github.com/{GITHUB_REPO}/releases/download/{WEIGHTS_RELEASE_TAG}/"
 )
 PRECOMPUTED_BASE_URL = CHECKPOINT_BASE_URL
 
@@ -835,9 +836,10 @@ def _looks_like_lfs_pointer(file_path):
     """
     True if `file_path` is a Git LFS pointer file rather than real tensor data.
 
-    Happens when a clone is made without git-lfs installed, or when an LFS-backed file is
-    fetched from raw.githubusercontent.com instead of the media host. Detecting it here turns
-    an opaque torch.load unpickling error into a clear message.
+    A leftover from before the weights moved to a GitHub Release: a clone from before that
+    change may still have LFS pointer files on disk (if git-lfs wasn't installed) rather than
+    the tensors themselves. A pointer is a small text file that starts with a known version
+    line; catching it here turns a confusing torch.load unpickling error into a clear message.
     """
     try:
         if os.path.getsize(file_path) > 1024:
@@ -897,8 +899,7 @@ def download_files(file_names, checkpoint_path, base_url=CHECKPOINT_BASE_URL):
             if _looks_like_lfs_pointer(file_path):
                 os.remove(file_path)
                 print(
-                    f"  Got a Git LFS pointer instead of {file_name}. The download URL must "
-                    f"point at media.githubusercontent.com, not raw.githubusercontent.com."
+                    f"  Got a Git LFS pointer instead of {file_name} from {file_url}."
                 )
         except HTTPError as e:
             print(

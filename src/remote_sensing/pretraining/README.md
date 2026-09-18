@@ -131,19 +131,19 @@ single comparison must not mix them: checkpoints trained before this change used
 
 ## 3. Publish the checkpoints for the notebooks
 
-Copy the trained `*_vit_s8.pt` files into `artifacts/remote_sensing/checkpoints/` and commit
-them. They are tracked by Git LFS (see `.gitattributes`), so they travel with the repository
-and Notebooks 1-4 pick them up with the "Found pretrained model, loading..." pattern instead
-of falling back to their built-in short live-training demo.
+Copy the trained `*_vit_s8.pt` files into `artifacts/remote_sensing/checkpoints/`, then upload
+them to the `weights-v1` GitHub Release (not committed to the repository -- see
+`tools/release_weights.sh`). Once uploaded, Notebooks 1-4 pick them up with the "Found
+pretrained model, loading..." pattern instead of falling back to their built-in short
+live-training demo.
 
     cp <trained>.pt ../../../artifacts/remote_sensing/checkpoints/
-    git add artifacts/remote_sensing/checkpoints/<trained>.pt
-    python ../../../tools/verify_assets.py --local    # confirm it is real data, not a pointer
+    export GITHUB_TOKEN=...    # a token with write access to the repo
+    ../../../tools/release_weights.sh
 
-There is no release to publish and no URL to update: `CHECKPOINT_BASE_URL` in
-`src/remote_sensing/tutorial_rs.py` already points at this repository's own LFS storage, which
-is what Colab downloads from. After pushing, `python tools/verify_assets.py --remote` confirms
-the download URLs resolve.
+There is no URL to update unless the release tag changes: `CHECKPOINT_BASE_URL` in
+`src/remote_sensing/tutorial_rs.py` already points at `weights-v1`. After uploading,
+`python ../../../tools/verify_assets.py --remote` confirms the download URLs resolve.
 
 ## Design notes
 

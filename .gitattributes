@@ -5,14 +5,10 @@
 *.ps1 text eol=crlf
 # Treat notebooks as text so diffs work, but don't let editors reformat them.
 *.ipynb text eol=lf
-# --- Git LFS -------------------------------------------------------------------------
-# The pretrained encoders (~294 MB across 10 files) are committed so that a clone of this
-# repository is self-contained: code + notebooks + weights, no external release to fetch.
-# They are stored in LFS rather than as plain blobs to keep the git history usable.
-#
-# NOTE for anyone cloning: you need git-lfs installed, otherwise the .pt files arrive as
-# ~130-byte pointer text files and torch.load will fail. See README.md ("Cloning").
-*.pt filter=lfs diff=lfs merge=lfs -text
+# The pretrained encoders (~294 MB across 10 files) are published as GitHub Release assets
+# rather than committed here -- see tools/release_weights.sh and README.md. They used to be
+# tracked via Git LFS, but LFS's 1 GB/month free bandwidth quota made the download 404 after
+# only a few clones or Colab runs; Release assets have no such quota.
 # Binary assets -- never touch.
 *.png binary
 *.jpg binary
