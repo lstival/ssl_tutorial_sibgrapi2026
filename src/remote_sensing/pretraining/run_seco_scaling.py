@@ -20,6 +20,8 @@ point would confound corpus size with resampling quality.
 
 Usage:
     python run_seco_scaling.py --seco-root "G:/seco_full/seasonal_contrast_100k"
+    python run_seco_scaling.py --seco-root ... --mechanism mae     # same curve for MAE (norm-pix)
+    python run_seco_scaling.py --seco-root ... --mechanism dino
     python run_seco_scaling.py --seco-root ... --fractions 0.01 0.10 --steps 5000   # smoke test
 """
 import argparse
@@ -43,6 +45,20 @@ PYTHON = sys.executable
 # the number of InfoNCE negatives and break comparability across the curve. At 20k total
 # locations and batch 256, 0.02 (400 locations) is the smallest safe point.
 DEFAULT_FRACTIONS = [0.02, 0.05, 0.10, 0.30, 1.00]
+
+# mechanism -> (training script, linear-probe readout). The readouts match rs_eval_results.json.
+MECHANISMS = {
+    "contrastive": ("train_contrastive.py", "cls"),
+    "mae": ("train_mae.py", "mean"),
+    "dino": ("train_dino.py", "cls"),
+}
+FIGURES_DIR = os.path.join(HERE, "..", "..", "..", "notebooks", "remote_sensing", "figures")
+
+
+def default_out_json(mechanism):
+    # The contrastive curve predates the other two and keeps its original file name.
+    name = "seco_scaling_results.json" if mechanism == "contrastive" else f"seco_scaling_{mechanism}_results.json"
+    return os.path.join(FIGURES_DIR, name)
 
 
 def tag_for(fraction):
@@ -87,6 +103,9 @@ def run(cmd, log_path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--seco-root", required=True, help="Extracted seasonal_contrast_100k directory (full corpus).")
+    ap.add_argument("--mechanism", default="contrastive", choices=sorted(MECHANISMS),
+                    help="SSL recipe to scale. Each trainer keeps its Optuna-tuned hyperparameters; "
+                         "only steps, batch size and preload resolution are pinned by this script.")
     ap.add_argument("--fractions", type=float, nargs="+", default=DEFAULT_FRACTIONS)
     ap.add_argument("--steps", type=int, default=20000, help="Fixed step budget for every corpus size.")
     ap.add_argument("--batch-size", type=int, default=256)
@@ -98,13 +117,21 @@ def main():
                          "the .tif files once (~5 min) and the rest load the blob in seconds. "
                          "Pass 'none' to decode separately in each run.")
     ap.add_argument("--ckpt-root", default=os.path.join(HERE, "..", "..", "..", "artifacts", "remote_sensing", "checkpoints", "seco_scaling"))
-    ap.add_argument("--out-json", default=os.path.join(HERE, "..", "..", "..", "notebooks", "remote_sensing", "figures", "seco_scaling_results.json"))
-    ap.add_argument("--log", default=os.path.join(HERE, "..", "..", "..", "data", "seco_scaling.log"))
+    ap.add_argument("--out-json", default=None,
+                    help="Results file (default: notebooks/remote_sensing/figures/seco_scaling[_<mechanism>]_results.json).")
+    ap.add_argument("--log", default=None, help="Training log (default: data/seco_scaling[_<mechanism>].log).")
     ap.add_argument("--skip-existing", action="store_true", help="Skip a fraction whose checkpoint already exists.")
     args = ap.parse_args()
 
+    train_script, pool = MECHANISMS[args.mechanism]
+    if args.out_json is None:
+        args.out_json = default_out_json(args.mechanism)
+    if args.log is None:
+        suffix = "" if args.mechanism == "contrastive" else f"_{args.mechanism}"
+        args.log = os.path.join(HERE, "..", "..", "..", "data", f"seco_scaling{suffix}.log")
+
     fractions = sorted(args.fractions)
-    print(f"SeCo scaling study | fractions={fractions} | steps={args.steps} (fixed) | "
+    print(f"SeCo scaling study | mechanism={args.mechanism} | fractions={fractions} | steps={args.steps} (fixed) | "
           f"batch={args.batch_size} | preload_res={args.preload_res}")
 
     manifest_dir = os.path.join(os.path.dirname(os.path.abspath(args.seco_root)), "scaling_manifests")
@@ -151,7 +178,7 @@ def main():
         # logs into one file (exactly the confusion documented for the MAE logs).
         run_dir = os.path.join(os.path.abspath(args.ckpt_root), tag)
         os.makedirs(run_dir, exist_ok=True)
-        ckpt = os.path.join(run_dir, "contrastive.pt")
+        ckpt = os.path.join(run_dir, f"{args.mechanism}.pt")
 
         if args.skip_existing and os.path.isfile(ckpt):
             print(f"\n[{tag}] checkpoint exists, skipping training.")
@@ -159,7 +186,7 @@ def main():
             print(f"\n[{tag}] training on {n_loc} locations (~{n_loc * 5} patches), {args.steps} steps...")
             t0 = time.time()
             cmd = [
-                PYTHON, os.path.join(HERE, "train_contrastive.py"),
+                PYTHON, os.path.join(HERE, train_script),
                 "--seco-root", args.seco_root,
                 "--manifest", manifest,
                 "--out", ckpt,
@@ -183,7 +210,7 @@ def main():
             PYTHON, os.path.join(HERE, "eval_encoder.py"),
             "--checkpoint", ckpt,
             "--name", tag,
-            "--pool", "cls",
+            "--pool", pool,
             "--out-json", os.path.abspath(args.out_json),
             "--meta", meta,
         ], args.log)

@@ -318,7 +318,7 @@
     <div class="chart">
       <div class="chart__hd">
         <h3>More unlabeled pretraining data keeps paying off</h3>
-        <p>Contrastive encoders pretrained on growing fractions of the SeCo corpus, each for a fixed 20 000 steps, then probed on EuroSAT</p>
+        <p id="sub-scaling">Encoders pretrained on growing fractions of the SeCo corpus, each for a fixed 20 000 steps, then probed on EuroSAT</p>
       </div>
       <div class="chart__body"><div id="chart-scaling"></div></div>
       <div class="chart__legend" id="lg-scaling"></div>
@@ -327,7 +327,7 @@
 
   <figure class="fig rv" style="margin-top:clamp(24px,3vw,34px)">
     <div class="fig__frame">
-      <img src="assets/img/tsne_encoders.png" alt="t-SNE projections of EuroSAT features from the random, contrastive, MAE and DINO encoders, showing increasingly separated class clusters." loading="lazy">
+      <img src="assets/img/tsne_encoders.png" alt="t-SNE projections of EuroSAT features from the random-init, contrastive, DINO and MAE (normalized-pixel target) encoders, showing increasingly separated class clusters." loading="lazy">
     </div>
     <figcaption><b>Figure 3.</b> t-SNE of frozen EuroSAT features. Pretraining separates the classes that a
     randomly initialized encoder leaves entangled — the visual counterpart of the probe accuracies above.</figcaption>

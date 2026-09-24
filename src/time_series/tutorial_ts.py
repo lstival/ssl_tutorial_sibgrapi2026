@@ -36,6 +36,8 @@ Every notebook downloads this file at the top (Colab) or imports it directly (lo
 
 import math
 import os
+import shutil
+import sys
 import urllib.request
 import zipfile
 from urllib.error import HTTPError
@@ -148,6 +150,38 @@ def ensure_ucr_archive(data_path):
         zf.extractall(data_path, pwd=UCR_ZIP_PASSWORD)
     print(f"UCR archive ready at {root}")
     return root
+
+
+def stage_ucr_locally(local_path, drive_path):
+    """
+    Colab only: put the UCR archive on the VM's local disk and return `local_path`.
+
+    Parsing hundreds of `.tsv` files through the Google Drive mount is far slower than reading
+    them from local disk. So the extracted archive lives locally, and Drive only keeps the
+    single zip, so a new session copies one file instead of downloading ~316 MB again. The zip
+    is saved to Drive the first time it is downloaded.
+    """
+    local_zip = os.path.join(local_path, "UCRArchive_2018.zip")
+    drive_zip = os.path.join(drive_path, "UCRArchive_2018.zip")
+    if not os.path.isfile(local_zip) and os.path.isfile(drive_zip):
+        print(f"Copying the cached UCR zip from Drive to {local_path} ...")
+        os.makedirs(local_path, exist_ok=True)
+        shutil.copyfile(drive_zip, local_zip)
+    ensure_ucr_archive(local_path)
+    if os.path.isfile(local_zip) and not os.path.isfile(drive_zip):
+        os.makedirs(drive_path, exist_ok=True)
+        shutil.copyfile(local_zip, drive_zip)
+        print(f"Cached the UCR zip on Drive at {drive_zip}")
+    return local_path
+
+
+def check_colab_gpu(device):
+    """Stop early on a Colab runtime without a GPU, where training runs ~100x slower."""
+    if "google.colab" in sys.modules and device.type != "cuda":
+        raise RuntimeError(
+            "This Colab runtime has no GPU, so training would take many hours.\n"
+            "Go to Runtime > Change runtime type, pick a GPU (e.g. T4), then run all cells again."
+        )
 
 
 def _list_ucr_datasets(root):

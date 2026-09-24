@@ -129,6 +129,18 @@ function lineChart(host, lines, xs, opts = {}) {
 
   lines.forEach((ln, li) => {
     const color = K[ln.k] || K.base;
+    /* a reference line: a single value drawn flat across the axis, labelled on the left */
+    if (ln.ref !== undefined) {
+      const yy = y(ln.ref);
+      svg.appendChild(el("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy, stroke: color,
+        "stroke-width": 1.6, "stroke-dasharray": "5 4", opacity: ln.k === "base" ? .6 : .85 }));
+      const t = el("text", { x: m.l + 6, y: yy - 6, fill: color, "font-size": 10.5,
+        "font-weight": 600, "font-family": "var(--ff-mono)",
+        stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" });
+      t.textContent = `${ln.tag} · ${pct(ln.ref)}`;
+      svg.appendChild(t);
+      return;
+    }
     const pts = ln.v.map((v, i) => [x(i), y(v)]);
     const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
     const path = el("path", { d, fill: "none", stroke: color,
@@ -139,7 +151,7 @@ function lineChart(host, lines, xs, opts = {}) {
     svg.appendChild(path);
 
     if (!window.matchMedia("(prefers-reduced-motion:reduce)").matches) {
-      const L = path.getTotalLength ? 900 : 900;
+      const L = 900;
       path.setAttribute("stroke-dasharray", ln.k === "base" ? "5 4" : L);
       if (ln.k !== "base") {
         path.setAttribute("stroke-dashoffset", L);
@@ -156,7 +168,8 @@ function lineChart(host, lines, xs, opts = {}) {
     /* endpoint value */
     const last = pts[pts.length - 1];
     const vt = el("text", { x: last[0] - 4, y: last[1] - 10, "text-anchor": "end",
-      fill: color, "font-size": 11, "font-weight": 600, "font-family": "var(--ff-mono)" });
+      fill: color, "font-size": 11, "font-weight": 600, "font-family": "var(--ff-mono)",
+      stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" });
     vt.textContent = pct(ln.v[ln.v.length - 1]);
     svg.appendChild(vt);
   });
@@ -183,11 +196,16 @@ async function loadData() {
     rs: "assets/data/rs_eval_results.json",
     sup: "assets/data/supervised_results.json",
     seco: "assets/data/seco_scaling_results.json",
+    /* optional until the MAE / DINO scaling runs land (run_seco_scaling.py --mechanism ...) */
+    seco_mae: "assets/data/seco_scaling_mae_results.json",
+    seco_dino: "assets/data/seco_scaling_dino_results.json",
     ts: "assets/data/ts_eval_results.json"
   };
   await Promise.all(Object.entries(files).map(async ([k, p]) => {
-    try { DATA[k] = await (await fetch(p)).json(); }
-    catch (e) { DATA[k] = null; }
+    try {
+      const r = await fetch(p);
+      DATA[k] = r.ok ? await r.json() : null;
+    } catch (e) { DATA[k] = null; }
   }));
 }
 
@@ -277,10 +295,42 @@ function renderScaling() {
     const f = DATA.seco[k].meta.fraction;
     return f >= 1 ? "100%" : `${(f * 100).toFixed(f < 0.1 ? 0 : 0)}%`;
   });
-  lineChart(host, [
-    { k: "con", v: keys.map(k => DATA.seco[k].full_label) }
-  ], labels, { min: 0.86, max: 0.94, step: 0.02,
+  const lines = [{ k: "con", v: keys.map(k => DATA.seco[k].full_label) }];
+  const items = [{ k: "con", label: "Contrastive" }];
+  const pending = [];
+
+  /* MAE / DINO: a full curve once their scaling runs exist, otherwise the single measured
+     full-corpus value as a flat reference -- never interpolated points. */
+  [["mae", "mask", "MAE (norm-pix)", "mae"], ["dino", "dist", "DINO", "dino"]]
+    .forEach(([name, k, label, fullKey]) => {
+      const curve = DATA[`seco_${name}`];
+      if (curve && keys.every(f => curve[f])) {
+        lines.push({ k, v: keys.map(f => curve[f].full_label) });
+        items.push({ k, label });
+      } else if (DATA.rs && DATA.rs[fullKey]) {
+        lines.push({ k, ref: DATA.rs[fullKey].full_label, tag: `${label}, 100% only` });
+        items.push({ k, label: `${label} (100% SeCo only)` });
+        pending.push(label);
+      }
+    });
+
+  if (DATA.sup) {
+    lines.push({ k: "base", ref: DATA.sup.supervised_fromscratch_full, tag: "Supervised, no pretraining" });
+    items.push({ k: "base", label: "Supervised from scratch (all labels)" });
+  }
+
+  const vals = lines.flatMap(l => (l.ref !== undefined ? [l.ref] : l.v));
+  const lo = Math.floor((Math.min(...vals) - 0.005) * 50) / 50;
+  const hi = Math.ceil((Math.max(...vals) + 0.005) * 50) / 50;
+  lineChart(host, lines, labels, { min: lo, max: hi, step: 0.02,
     xlabel: "SHARE OF THE SeCo PRETRAINING CORPUS",
-    aria: "Downstream accuracy as the pretraining corpus grows" });
-  legend(lg, [{ k: "con", label: "Contrastive encoder · EuroSAT linear probe" }]);
+    aria: "EuroSAT linear-probe accuracy as the unlabeled pretraining corpus grows, per SSL method, with a supervised reference" });
+  legend(lg, items);
+
+  const sub = document.getElementById("sub-scaling");
+  if (sub) {
+    sub.textContent = "Encoders pretrained on growing fractions of the SeCo corpus, each for a fixed 20 000 steps, " +
+      "then linear-probed on EuroSAT. Dashed: supervised training from scratch, which uses no unlabeled data" +
+      (pending.length ? `, and ${pending.join(" / ")} measured on the full corpus only (smaller fractions pending).` : ".");
+  }
 }

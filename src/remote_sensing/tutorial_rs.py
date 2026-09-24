@@ -15,7 +15,9 @@ Every notebook downloads this file at the top (Colab) or imports it directly (lo
 
 import os
 import random
+import shutil
 import socket
+import sys
 import urllib.request
 from urllib.error import HTTPError, URLError
 
@@ -120,6 +122,41 @@ def load_eurosat(dataset_path, transform=None):
             f"    {os.path.abspath(os.path.join(dataset_path, 'eurosat', '2750'))}\n"
             "The archive is also mirrored at https://github.com/phelber/EuroSAT ."
         ) from first_error
+
+
+def stage_eurosat_locally(local_path, drive_path):
+    """
+    Colab only: put EuroSAT on the VM's local disk and return `local_path`.
+
+    Reading 27,000 small JPEGs one by one through the Google Drive mount is slow enough to
+    starve the GPU (and makes a CPU-only run look like it takes a day). So the images live on
+    local disk, and Drive only keeps the single ~90 MB zip, so a new session copies one file
+    instead of downloading again. The zip is saved to Drive the first time it is downloaded.
+    """
+    local_zip = os.path.join(local_path, "eurosat", "EuroSAT.zip")
+    drive_zip = os.path.join(drive_path, "eurosat", "EuroSAT.zip")
+    if not os.path.isdir(os.path.join(local_path, "eurosat", "2750")):
+        if os.path.isfile(drive_zip):
+            print(f"Copying the cached EuroSAT zip from Drive to {local_path} ...")
+            os.makedirs(os.path.dirname(local_zip), exist_ok=True)
+            shutil.copyfile(drive_zip, local_zip)
+            torchvision.datasets.utils.extract_archive(local_zip, os.path.dirname(local_zip))
+        else:
+            load_eurosat(local_path)
+    if os.path.isfile(local_zip) and not os.path.isfile(drive_zip):
+        os.makedirs(os.path.dirname(drive_zip), exist_ok=True)
+        shutil.copyfile(local_zip, drive_zip)
+        print(f"Cached the EuroSAT zip on Drive at {drive_zip}")
+    return local_path
+
+
+def check_colab_gpu(device):
+    """Stop early on a Colab runtime without a GPU, where training runs ~100x slower."""
+    if "google.colab" in sys.modules and device.type != "cuda":
+        raise RuntimeError(
+            "This Colab runtime has no GPU, so training would take many hours.\n"
+            "Go to Runtime > Change runtime type, pick a GPU (e.g. T4), then run all cells again."
+        )
 
 
 def stratified_split(dataset, test_size=0.2, seed=SEED):
