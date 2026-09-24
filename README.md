@@ -66,21 +66,40 @@ The remote check confirms the GitHub Release serves the real tensors, not a 404.
 also carries a small self-test cell that reports which encoders are on disk or downloadable
 before any training starts.
 
+### Continuous validation
+
+Two layers, because Colab has no free API to trigger automated runs on its own GPUs:
+
+- **CI, every push/PR + weekly** ([`.github/workflows/notebooks-ci.yml`](.github/workflows/notebooks-ci.yml)):
+  runs every teaching notebook headless on CPU via `tools/run_notebooks_ci.py`, both tracks in
+  parallel. Catches import/path/logic breakage and confirms the release assets are reachable.
+  Does not exercise a GPU.
+- **Colab GPU smoke test, run by hand before a session** ([`notebooks/colab_smoke_test.ipynb`](notebooks/colab_smoke_test.ipynb)):
+  open it in Colab, Runtime > GPU, Runtime > Run all. It clones the repo fresh, confirms a GPU
+  is attached, and runs every notebook end-to-end on that GPU with the real weights downloaded
+  from the release -- i.e. exactly what a participant's browser will do. The last cell reports
+  which notebook (if any) broke and why.
+
+```bash
+python tools/run_notebooks_ci.py                  # both tracks, CPU, local or CI
+python tools/run_notebooks_ci.py --track time_series --only 00,01
+```
+
 ## Repository layout
 
 ```
 notebooks/
 ├── remote_sensing/             Hour-2 teaching notebooks
 │   ├── 00_setup_and_data.ipynb        Dataset, RS-specific augmentations, shared backbone
-│   ├── 01_contrastive_simclr.ipynb    Contrastive learning (InfoNCE) -- 1 fill-in-the-blank
-│   ├── 02_masking_mae.ipynb           Masked autoencoding (MAE) -- 2 fill-in-the-blanks
-│   ├── 03_distillation_dino.ipynb     Self-distillation (DINO) -- 2 fill-in-the-blanks
+│   ├── 01_contrastive_simclr.ipynb    Contrastive learning (InfoNCE)
+│   ├── 02_masking_mae.ipynb           Masked autoencoding (MAE)
+│   ├── 03_distillation_dino.ipynb     Self-distillation (DINO)
 │   ├── 04_comparative_evaluation.ipynb  Linear-probe comparison across all three encoders
-│   ├── *_skeleton.ipynb               Auto-generated participant versions (blanks removed)
 │   └── figures/                       Result JSON + figures behind the paper and the website
-└── time_series/                Hour-3 teaching notebooks (same style, UCR classification)
-    ├── 00 .. 04 + *_skeleton.ipynb    Same five-notebook structure as remote_sensing
-    └── figures/
+├── time_series/                Hour-3 teaching notebooks (same style, UCR classification)
+│   ├── 00 .. 04                       Same five-notebook structure as remote_sensing
+│   └── figures/
+└── colab_smoke_test.ipynb      Run by hand on a Colab GPU before a session, see below
 
 src/
 ├── remote_sensing/
@@ -93,9 +112,9 @@ src/
 artifacts/<domain>/checkpoints/ Pretrained encoders -- downloaded from the weights release, see below
 site/                           The tutorial website (GitHub Pages)
 tools/
-├── make_skeleton.py            Generates *_skeleton.ipynb from the filled notebooks
 ├── release_weights.sh          Uploads the encoders to the GitHub Release (maintainers only)
-└── verify_assets.py            Checks every encoder is present locally and downloadable
+├── verify_assets.py            Checks every encoder is present locally and downloadable
+└── run_notebooks_ci.py         Executes every notebook headless and reports what broke (CI + Colab smoke test)
 ```
 
 This repository ships the tutorial itself: the notebooks, the modules they import, the

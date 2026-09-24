@@ -1,0 +1,55 @@
+name: Notebooks CI
+
+# Runs every teaching notebook headless (CPU) so a broken participant experience is caught
+# here, not in front of a room. This is the always-on complement to notebooks/colab_smoke_test.ipynb,
+# which does the same thing on a real Colab GPU but has to be triggered by hand (Colab has no
+# free API for scheduled/automated runs). See README.md "Continuous validation".
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Weekly, to catch drift even when nobody is touching the repo (e.g. the GitHub Release
+    # assets or an upstream dataset mirror going away).
+    - cron: "0 6 * * 1"
+
+jobs:
+  notebooks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [remote_sensing, time_series]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install papermill ipykernel
+          python -m ipykernel install --user --name python3
+
+      - name: Verify release assets are reachable
+        run: python tools/verify_assets.py --remote
+
+      - name: Run ${{ matrix.track }} notebooks
+        run: |
+          python tools/run_notebooks_ci.py \
+            --track ${{ matrix.track }} \
+            --timeout 1800 \
+            --summary-file "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload executed notebooks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: executed-notebooks-${{ matrix.track }}
+          path: artifacts/ci_run/*.ipynb
+          retention-days: 14
