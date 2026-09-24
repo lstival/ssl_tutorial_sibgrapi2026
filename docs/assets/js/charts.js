@@ -5,7 +5,11 @@
    ------------------------------------------------------------ */
 
 const NS = "http://www.w3.org/2000/svg";
-const K = { con:"var(--c-con)", mask:"var(--c-mask)", dist:"var(--c-dist)", base:"var(--ink-3)" };
+const K = { con:"var(--c-con)", mask:"var(--c-mask)", dist:"var(--c-dist)", base:"var(--ink-3)",
+            scratch:"var(--ink-2)" };
+/* Baseline curves are drawn thin, dashed and without the draw-in animation; "scratch" gets a
+   dotted pattern so it stays distinguishable from "base" when both are on one chart. */
+const DASH = { base: "5 4", scratch: "2 4" };
 
 const el = (n, a = {}) => {
   const e = document.createElementNS(NS, n);
@@ -127,6 +131,7 @@ function lineChart(host, lines, xs, opts = {}) {
     svg.appendChild(t);
   }
 
+  const ends = [];
   lines.forEach((ln, li) => {
     const color = K[ln.k] || K.base;
     /* a reference line: a single value drawn flat across the axis, labelled on the left */
@@ -143,17 +148,18 @@ function lineChart(host, lines, xs, opts = {}) {
     }
     const pts = ln.v.map((v, i) => [x(i), y(v)]);
     const d = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
+    const dash = DASH[ln.k];
     const path = el("path", { d, fill: "none", stroke: color,
-      "stroke-width": ln.k === "base" ? 1.6 : 2.2,
-      "stroke-dasharray": ln.k === "base" ? "5 4" : "none",
+      "stroke-width": dash ? 1.6 : 2.2,
+      "stroke-dasharray": dash || "none",
       "stroke-linecap": "round", "stroke-linejoin": "round",
       opacity: ln.k === "base" ? .6 : 1 });
     svg.appendChild(path);
 
     if (!window.matchMedia("(prefers-reduced-motion:reduce)").matches) {
       const L = 900;
-      path.setAttribute("stroke-dasharray", ln.k === "base" ? "5 4" : L);
-      if (ln.k !== "base") {
+      path.setAttribute("stroke-dasharray", dash || L);
+      if (!dash) {
         path.setAttribute("stroke-dashoffset", L);
         path.appendChild(el("animate", { attributeName: "stroke-dashoffset",
           from: L, to: 0, dur: "1s", begin: `${li * 0.12}s`, fill: "freeze" }));
@@ -161,16 +167,24 @@ function lineChart(host, lines, xs, opts = {}) {
     }
 
     pts.forEach((p, i) => {
-      svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: ln.k === "base" ? 2.5 : 3.4,
+      svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: DASH[ln.k] ? 2.5 : 3.4,
         fill: color, opacity: ln.k === "base" ? .6 : 1 }));
     });
 
-    /* endpoint value */
+    /* endpoint value, placed below once every line is known */
     const last = pts[pts.length - 1];
-    const vt = el("text", { x: last[0] - 4, y: last[1] - 10, "text-anchor": "end",
-      fill: color, "font-size": 11, "font-weight": 600, "font-family": "var(--ff-mono)",
+    ends.push({ x: last[0] - 4, y: last[1] - 10, color, text: pct(ln.v[ln.v.length - 1]) });
+  });
+
+  /* Stack the endpoint values top to bottom, pushing each one down just enough that it does
+     not overlap the one above: curves that finish close together stay readable. */
+  ends.sort((a, b) => a.y - b.y);
+  ends.forEach((e, i) => {
+    if (i > 0) e.y = Math.max(e.y, ends[i - 1].y + 12);
+    const vt = el("text", { x: e.x, y: e.y, "text-anchor": "end",
+      fill: e.color, "font-size": 11, "font-weight": 600, "font-family": "var(--ff-mono)",
       stroke: "var(--surface)", "stroke-width": 3, "paint-order": "stroke" });
-    vt.textContent = pct(ln.v[ln.v.length - 1]);
+    vt.textContent = e.text;
     svg.appendChild(vt);
   });
 
@@ -257,7 +271,7 @@ function renderModality(mode) {
        a bare number, so an older results file still renders. */
     const acc = (x) => (x && typeof x === "object" ? x.accuracy : x);
     barChart(barHost, [
-      { label: "Random init", v: acc(d.random_init), k: "base" },
+      { label: "Random init", v: acc(d.full_label.random_init ?? d.random_init), k: "base" },
       { label: "Contrastive", v: acc(d.full_label.contrastive), k: "con" },
       { label: "Masking MAE", v: acc(d.full_label.mae), k: "mask" },
       { label: "DINO", v: acc(d.full_label.dino), k: "dist", best: true },
@@ -270,19 +284,26 @@ function renderModality(mode) {
     ]);
 
     const budgets = d.label_budgets.map(String);
-    lineChart(fewHost, [
+    const fewLines = [
       { k: "dist", v: budgets.map(b => d.few_label.dino[b]) },
       { k: "con", v: budgets.map(b => d.few_label.contrastive[b]) },
       { k: "mask", v: budgets.map(b => d.few_label.mae[b]) },
       { k: "base", v: budgets.map(b => (d.few_label.random_init || d.random_init.few_label)[b]) }
-    ], budgets, { min: 0.3, max: 0.95, step: 0.1,
+    ];
+    const fewItems = [
+      { k: "dist", label: "DINO" }, { k: "con", label: "Contrastive" },
+      { k: "mask", label: "MAE" }, { k: "base", label: "Random init" }
+    ];
+    /* trained from scratch on the same k labels per class; older results files lack it */
+    if (d.few_label.supervised) {
+      fewLines.push({ k: "scratch", v: budgets.map(b => d.few_label.supervised[b]) });
+      fewItems.push({ k: "scratch", label: "From scratch" });
+    }
+    lineChart(fewHost, fewLines, budgets, { min: 0.3, max: 0.95, step: 0.1,
       xlabel: "LABELS PER CLASS",
       aria: "Accuracy versus labels per class for each paradigm on time series" });
     fewSub.textContent = `UCR · ${d.target} · accuracy as the label budget shrinks`;
-    legend(fewLg, [
-      { k: "dist", label: "DINO" }, { k: "con", label: "Contrastive" },
-      { k: "mask", label: "MAE" }, { k: "base", label: "Random init" }
-    ]);
+    legend(fewLg, fewItems);
   }
 }
 

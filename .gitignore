@@ -45,6 +45,8 @@ scripts/
 docs/*_implementation_plan.md
 # superseded website design mockup
 wireframes/
+# maintainer-only upload of the Release assets (weights, UCR subset cache)
+tools/release_weights.sh
 
 # OS / editor
 .DS_Store

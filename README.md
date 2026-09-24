@@ -115,7 +115,6 @@ src/
 artifacts/<domain>/checkpoints/ Pretrained encoders -- downloaded from the weights release, see below
 site/                           The tutorial website (GitHub Pages)
 tools/
-├── release_weights.sh          Uploads the encoders to the GitHub Release (maintainers only)
 ├── verify_assets.py            Checks every encoder is present locally and downloadable
 └── run_notebooks_ci.py         Executes every notebook headless and reports what broke (CI + Colab smoke test)
 ```

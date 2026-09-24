@@ -12,70 +12,38 @@
     20
   ],
   "full_label": {
+    "contrastive": 0.9104,
+    "mae": 0.9024,
+    "dino": 0.9392,
+    "random_init": 0.8,
+    "supervised": 0.8736
+  },
+  "readout": {
     "contrastive": {
-      "accuracy": 0.9104,
-      "pool": "cls",
-      "by_readout": {
-        "cls": 0.9104,
-        "mean": 0.9136
-      },
-      "checkpoint_meta": {
-        "step": 15000,
-        "loss": 1.0919018983840942,
-        "mechanism": "contrastive",
-        "temperature": 0.1,
-        "batch_size": 256,
-        "corpus": "ucr",
-        "n_datasets": 128,
-        "n_series": 45192,
-        "steps_total": 15000
-      }
+      "cls": 0.9104,
+      "mean": 0.9136
     },
     "mae": {
-      "accuracy": 0.9024,
-      "pool": "mean",
-      "by_readout": {
-        "cls": 0.8976,
-        "mean": 0.9024
-      },
-      "checkpoint_meta": {
-        "step": 15000,
-        "loss": 0.42783933877944946,
-        "mechanism": "mae",
-        "mask_ratio": 0.5,
-        "norm_pix": true,
-        "corpus": "ucr",
-        "n_datasets": 128,
-        "n_series": 45192,
-        "steps_total": 15000
-      }
+      "cls": 0.8944,
+      "mean": 0.9024
     },
     "dino": {
-      "accuracy": 0.9392,
-      "pool": "cls",
-      "by_readout": {
-        "cls": 0.9392,
-        "mean": 0.9152
-      },
-      "checkpoint_meta": {
-        "step": 15000,
-        "loss": 1.5078233480453491,
-        "mechanism": "dino",
-        "entropy": 0.3679727613925934,
-        "corpus": "ucr",
-        "n_datasets": 128,
-        "n_series": 45192,
-        "steps_total": 15000
-      }
+      "cls": 0.9392,
+      "mean": 0.9152
     }
+  },
+  "pools_used": {
+    "contrastive": "cls",
+    "mae": "mean",
+    "dino": "cls"
   },
   "few_label": {
     "contrastive": {
       "1": 0.5776,
       "2": 0.7296,
       "5": 0.816,
-      "10": 0.872,
-      "20": 0.8832
+      "10": 0.8736,
+      "20": 0.8864
     },
     "mae": {
       "1": 0.4832,
@@ -87,15 +55,36 @@
     "dino": {
       "1": 0.5904,
       "2": 0.7456,
-      "5": 0.848,
+      "5": 0.8496,
       "10": 0.8848,
       "20": 0.9296
+    },
+    "random_init": {
+      "1": 0.3376,
+      "2": 0.44,
+      "5": 0.5792,
+      "10": 0.7072,
+      "20": 0.7792
+    },
+    "nn_euclidean": {
+      "1": 0.3536,
+      "2": 0.4736,
+      "5": 0.5696,
+      "10": 0.6656,
+      "20": 0.7264
+    },
+    "supervised": {
+      "1": 0.3744,
+      "2": 0.4608,
+      "5": 0.6352,
+      "10": 0.7456,
+      "20": 0.8432
     }
   },
   "transfer": {
     "contrastive": {
       "FaceAll": 0.7331360946745562,
-      "ECG5000": 0.9382222222222222,
+      "ECG5000": 0.9384444444444444,
       "Trace": 1.0,
       "Plane": 1.0,
       "SyntheticControl": 0.9966666666666667,
@@ -105,7 +94,7 @@
     },
     "mae": {
       "FaceAll": 0.6597633136094675,
-      "ECG5000": 0.9295555555555556,
+      "ECG5000": 0.9297777777777778,
       "Trace": 1.0,
       "Plane": 0.9904761904761905,
       "SyntheticControl": 0.93,
@@ -124,40 +113,36 @@
       "Fish": 0.8628571428571429
     },
     "random_init": {
-      "FaceAll": 0.6301775147928994,
-      "ECG5000": 0.9335555555555556,
+      "FaceAll": 0.6295857988165681,
+      "ECG5000": 0.9333333333333333,
       "Trace": 0.83,
       "Plane": 0.9714285714285714,
       "SyntheticControl": 0.9,
       "GunPoint": 0.88,
       "OSULeaf": 0.5413223140495868,
       "Fish": 0.7314285714285714
-    }
-  },
-  "readout": {
-    "contrastive": {
-      "cls": 0.9104,
-      "mean": 0.9136
     },
-    "mae": {
-      "cls": 0.8976,
-      "mean": 0.9024
+    "nn_euclidean": {
+      "FaceAll": 0.7153846153846154,
+      "ECG5000": 0.9242222222222222,
+      "Trace": 0.75,
+      "Plane": 0.9619047619047619,
+      "SyntheticControl": 0.8966666666666666,
+      "GunPoint": 0.9133333333333333,
+      "OSULeaf": 0.512396694214876,
+      "Fish": 0.7828571428571428
     },
-    "dino": {
-      "cls": 0.9392,
-      "mean": 0.9152
-    }
-  },
-  "random_init": {
-    "accuracy": 0.8,
-    "few_label": {
-      "1": 0.3376,
-      "2": 0.44,
-      "5": 0.5792,
-      "10": 0.7072,
-      "20": 0.7792
+    "supervised": {
+      "FaceAll": 0.7319526627218935,
+      "ECG5000": 0.9326666666666666,
+      "Trace": 0.89,
+      "Plane": 0.9428571428571428,
+      "SyntheticControl": 0.95,
+      "GunPoint": 0.9,
+      "OSULeaf": 0.5578512396694215,
+      "Fish": 0.7885714285714286
     }
   },
   "nn_euclidean": 0.7888,
-  "supervised": 0.872
+  "supervised": 0.8736
 }
