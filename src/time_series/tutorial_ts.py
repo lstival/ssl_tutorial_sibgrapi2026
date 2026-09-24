@@ -19,7 +19,8 @@ which is classification-oriented throughout.
 What lives here:
 
   - the UCR Time Series Archive (2018): 128 univariate classification datasets, loaded from
-    the official `.tsv` files, with a downloader that fetches and unzips the archive on first use
+    the official `.tsv` files, with a downloader that fetches the archive on first use and caches
+    the part the notebooks read in one compact file
   - the archive's own canonical TRAIN/TEST split (unlike EuroSAT, UCR ships one - so we use it
     rather than inventing a split)
   - fixed-length resampling to `SERIES_LEN` (128) so one backbone serves every dataset
@@ -37,6 +38,7 @@ Every notebook downloads this file at the top (Colab) or imports it directly (lo
 import math
 import os
 import shutil
+import subprocess
 import sys
 import urllib.request
 import zipfile
@@ -92,8 +94,8 @@ def get_device():
 #
 # The archive is distributed as a single password-protected zip (the password is published on
 # the archive's own page and is not a secret - it exists so that downloaders acknowledge the
-# accompanying documentation). We fetch and unzip it on first use, the same way
-# `tutorial_rs.py` lets torchvision download EuroSAT.
+# accompanying documentation). We fetch it on first use, the same way `tutorial_rs.py` lets
+# torchvision download EuroSAT, and unpack only the files the notebooks need (see below).
 
 UCR_URL = "https://www.cs.ucr.edu/~eamonn/time_series_data_2018/UCRArchive_2018.zip"
 UCR_ZIP_PASSWORD = b"someone"
@@ -126,25 +128,98 @@ PATCH_LEN = 16
 PATCH_STRIDE = 16
 
 
+UCR_ZIP_FILENAME = "UCRArchive_2018.zip"
+
+# The notebooks never need the whole archive. They read (a) the TRAIN and TEST splits of the
+# handful of datasets they classify, and (b) the pooled pretraining corpus, which is built from
+# the TRAIN split of all 128 datasets but, once capped and resampled, is only ~23 MB of floats.
+# Both are written to one compact `.npz` the first time any notebook asks for UCR data; every
+# later run (and every other notebook) loads that file in about a second instead of extracting
+# ~900 MB of `.tsv` files and re-parsing them.
+#
+# The same file is published as a GitHub Release asset, so a fresh machine (every Colab
+# session) normally downloads those ~25 MB instead of the ~316 MB archive, and never builds
+# anything. Building from the archive remains the fallback when the asset is unreachable.
+# Bump the version (and the tag) whenever the cache contents change.
+UCR_CACHE_FILENAME = "UCRArchive_2018_tutorial.npz"
+UCR_CACHE_VERSION = 1
+UCR_CACHE_RELEASE_TAG = f"ucr-cache-v{UCR_CACHE_VERSION}"
+UCR_CACHE_RELEASE_URL = (
+    "https://github.com/lstival/ssl_tutorial_sibgrapi2026/releases/download/"
+    f"{UCR_CACHE_RELEASE_TAG}/{UCR_CACHE_FILENAME}"
+)
+
+# Datasets whose raw TRAIN/TEST splits go into the cache: the target plus the cross-dataset
+# transfer set of Notebook 4 (OSULeaf doubles as the resampling example of Notebook 0). Any
+# other dataset still works, it is just read from the archive instead.
+UCR_CACHED_DATASETS = (TARGET_DATASET, "FaceAll", "ECG5000", "Trace", "Plane",
+                       "SyntheticControl", "GunPoint", "OSULeaf", "Fish")
+
+# The corpus configuration the notebooks use; only this one is served from the cache.
+UCR_CORPUS_CAP = 2000
+
+_UCR_CACHE = {}  # absolute cache path -> arrays, so each process reads the file once
+
+
 def ucr_root(data_path):
     """The extracted archive directory inside `data_path`."""
     return os.path.join(data_path, UCR_DIRNAME)
 
 
+def _ucr_member(name, split):
+    """Archive-relative path of one split's `.tsv` (also its path under `data_path`)."""
+    return f"{UCR_DIRNAME}/{name}/{name}_{'TRAIN' if split == 'train' else 'TEST'}.tsv"
+
+
+def _download_ucr_zip(data_path):
+    """Download the archive zip into `data_path` unless it is already there."""
+    zip_path = os.path.join(data_path, UCR_ZIP_FILENAME)
+    if not os.path.isfile(zip_path):
+        os.makedirs(data_path, exist_ok=True)
+        print(f"Downloading the UCR archive (~316 MB) from {UCR_URL} ...")
+        urllib.request.urlretrieve(UCR_URL, zip_path)
+    return zip_path
+
+
+def _extract_ucr_members(data_path, members):
+    """
+    Extract just `members` from the archive into `data_path`, skipping those already on disk.
+
+    The zip is ZipCrypto-encrypted, which Python's `zipfile` decrypts in pure Python at a few
+    MB/s. The `unzip` tool (present on Colab and most Linux/macOS machines) does the same in C,
+    so it is used when available.
+    """
+    members = [m for m in members if not os.path.isfile(os.path.join(data_path, m))]
+    if not members:
+        return
+    zip_path = _download_ucr_zip(data_path)
+    print(f"Extracting {len(members)} files from the UCR archive ...")
+    unzip = shutil.which("unzip")
+    if unzip is not None:
+        try:
+            subprocess.run([unzip, "-o", "-q", "-P", UCR_ZIP_PASSWORD.decode(), zip_path,
+                            *members, "-d", data_path], check=True)
+            return
+        except (OSError, subprocess.CalledProcessError) as e:
+            print(f"  unzip failed ({e}); falling back to Python's zipfile")
+    with zipfile.ZipFile(zip_path) as zf:
+        for m in members:
+            zf.extract(m, data_path, pwd=UCR_ZIP_PASSWORD)
+
+
 def ensure_ucr_archive(data_path):
     """
-    Download and extract the UCR 2018 archive into `data_path` if it is not already there.
-    Returns the archive root directory. The zip is ~316 MB, so this runs once.
+    Download and extract the whole UCR 2018 archive into `data_path` if it is not already there.
+    Returns the archive root directory.
+
+    The notebooks do not need this: they read through the compact cache (`load_ucr_cache`),
+    which only extracts the files it uses. It is kept for working with the full archive.
     """
     root = ucr_root(data_path)
     if os.path.isdir(root) and len(_list_ucr_datasets(root)) > 100:
         return root
 
-    os.makedirs(data_path, exist_ok=True)
-    zip_path = os.path.join(data_path, "UCRArchive_2018.zip")
-    if not os.path.isfile(zip_path):
-        print(f"Downloading the UCR archive (~316 MB) from {UCR_URL} ...")
-        urllib.request.urlretrieve(UCR_URL, zip_path)
+    zip_path = _download_ucr_zip(data_path)
     print("Extracting the UCR archive ...")
     with zipfile.ZipFile(zip_path) as zf:
         zf.extractall(data_path, pwd=UCR_ZIP_PASSWORD)
@@ -154,24 +229,33 @@ def ensure_ucr_archive(data_path):
 
 def stage_ucr_locally(local_path, drive_path):
     """
-    Colab only: put the UCR archive on the VM's local disk and return `local_path`.
+    Colab only: put the tutorial's UCR cache on the VM's local disk and return `local_path`.
 
-    Parsing hundreds of `.tsv` files through the Google Drive mount is far slower than reading
-    them from local disk. So the extracted archive lives locally, and Drive only keeps the
-    single zip, so a new session copies one file instead of downloading ~316 MB again. The zip
-    is saved to Drive the first time it is downloaded.
+    Drive keeps only the compact cache file (`UCR_CACHE_FILENAME`, ~25 MB), so every session
+    after the very first one copies that single file. The first session downloads it from the
+    GitHub Release (or, failing that, builds it from the archive) and saves it to Drive.
     """
-    local_zip = os.path.join(local_path, "UCRArchive_2018.zip")
-    drive_zip = os.path.join(drive_path, "UCRArchive_2018.zip")
-    if not os.path.isfile(local_zip) and os.path.isfile(drive_zip):
-        print(f"Copying the cached UCR zip from Drive to {local_path} ...")
-        os.makedirs(local_path, exist_ok=True)
-        shutil.copyfile(drive_zip, local_zip)
-    ensure_ucr_archive(local_path)
-    if os.path.isfile(local_zip) and not os.path.isfile(drive_zip):
+    local_cache = os.path.join(local_path, UCR_CACHE_FILENAME)
+    drive_cache = os.path.join(drive_path, UCR_CACHE_FILENAME)
+    os.makedirs(local_path, exist_ok=True)
+    if not os.path.isfile(local_cache) and os.path.isfile(drive_cache):
+        print(f"Copying the cached UCR subset from Drive to {local_path} ...")
+        shutil.copyfile(drive_cache, local_cache)
+    if _read_ucr_cache_file(local_cache) is None and _download_ucr_cache(local_path) is None:
+        # Building from the archive: a zip saved to Drive by an earlier version of this
+        # tutorial spares the ~316 MB download.
+        local_zip = os.path.join(local_path, UCR_ZIP_FILENAME)
+        drive_zip = os.path.join(drive_path, UCR_ZIP_FILENAME)
+        if not os.path.isfile(local_zip) and os.path.isfile(drive_zip):
+            print(f"Copying the cached UCR zip from Drive to {local_path} ...")
+            shutil.copyfile(drive_zip, local_zip)
+        build_ucr_cache(local_path)
+    load_ucr_cache(local_path)
+    if not os.path.isfile(drive_cache) \
+            or os.path.getsize(drive_cache) != os.path.getsize(local_cache):
         os.makedirs(drive_path, exist_ok=True)
-        shutil.copyfile(local_zip, drive_zip)
-        print(f"Cached the UCR zip on Drive at {drive_zip}")
+        shutil.copyfile(local_cache, drive_cache)
+        print(f"Cached the UCR subset on Drive at {drive_cache}")
     return local_path
 
 
@@ -202,7 +286,25 @@ def list_ucr_datasets(data_path):
     pre-imputed copies rather than a dataset of its own; it has no top-level `_TRAIN.tsv`
     and is filtered out here.
     """
-    return _list_ucr_datasets(ensure_ucr_archive(data_path))
+    return [str(n) for n in load_ucr_cache(data_path)["names"]]
+
+
+def _archive_dataset_names(data_path):
+    """
+    Dataset names read from the extracted archive when it is complete, otherwise from the zip's
+    file index (which needs no extraction). Sorted the same way in both cases, so the corpus is
+    drawn in the same order - and therefore with the same random subsample - either way.
+    """
+    names = _list_ucr_datasets(ucr_root(data_path))
+    if len(names) > 100:
+        return names
+    with zipfile.ZipFile(_download_ucr_zip(data_path)) as zf:
+        found = set()
+        for member in zf.namelist():
+            parts = member.split("/")
+            if len(parts) == 3 and parts[0] == UCR_DIRNAME and parts[2] == f"{parts[1]}_TRAIN.tsv":
+                found.add(parts[1])
+    return sorted(found)
 
 
 def _read_ucr_tsv(path):
@@ -215,6 +317,126 @@ def _read_ucr_tsv(path):
     if raw.ndim == 1:  # a single-row file
         raw = raw[None, :]
     return raw[:, 0], raw[:, 1:].astype(np.float32)
+
+
+def _read_ucr_split(data_path, name, split, use_cache=True):
+    """
+    Raw (labels, series) of one split, from the cache when it holds `name`, otherwise from the
+    archive (extracting just that one file if needed).
+    """
+    if use_cache:
+        cache = load_ucr_cache(data_path)
+        key = f"{name}__{split}"
+        if f"{key}__labels" in cache:
+            return cache[f"{key}__labels"], cache[f"{key}__series"]
+    member = _ucr_member(name, split)
+    _extract_ucr_members(data_path, [member])
+    return _read_ucr_tsv(os.path.join(data_path, member))
+
+
+def read_ucr_raw(data_path, name, split="train"):
+    """
+    One split exactly as the archive stores it: (labels, series) with the raw label values and
+    the series at native length, unnormalized, NaN-padded where the dataset is variable-length.
+    """
+    return _read_ucr_split(data_path, name, split)
+
+
+def build_ucr_cache(data_path):
+    """
+    Build the tutorial's compact UCR cache in `data_path` and return its arrays.
+
+    Extracts only what the notebooks read - every TRAIN split (for the pretraining corpus) and
+    the TEST splits of `UCR_CACHED_DATASETS` - then stores the raw splits of those datasets and
+    the ready-made corpus in `UCR_CACHE_FILENAME`. This is the one slow step; it runs once.
+    """
+    names = _archive_dataset_names(data_path)
+    _extract_ucr_members(
+        data_path,
+        [_ucr_member(n, "train") for n in names]
+        + [_ucr_member(n, "test") for n in UCR_CACHED_DATASETS],
+    )
+    print("Building the tutorial's UCR subset (runs once) ...")
+    cache = {"version": np.array(UCR_CACHE_VERSION), "names": np.array(names)}
+    for name in UCR_CACHED_DATASETS:
+        for split in ("train", "test"):
+            labels, series = _read_ucr_split(data_path, name, split, use_cache=False)
+            cache[f"{name}__{split}__labels"] = labels
+            cache[f"{name}__{split}__series"] = series
+    X, sizes = _build_corpus(data_path, names, SERIES_LEN, UCR_CORPUS_CAP, SEED,
+                             verbose=True, use_cache=False)
+    cache["corpus__X"] = X
+    cache["corpus__names"] = np.array(list(sizes))
+    cache["corpus__sizes"] = np.array(list(sizes.values()), dtype=np.int64)
+
+    # Write to a temporary name first, so an interrupted run never leaves a truncated cache.
+    path = os.path.join(data_path, UCR_CACHE_FILENAME)
+    tmp_path = path[:-len(".npz")] + ".tmp.npz"
+    np.savez_compressed(tmp_path, **cache)
+    os.replace(tmp_path, path)
+    print(f"UCR subset cached at {path} ({os.path.getsize(path) / 1e6:.0f} MB)")
+    return cache
+
+
+def _read_ucr_cache_file(path):
+    """The arrays of a cache file, or None if it is missing, unreadable or of another version."""
+    if not os.path.isfile(path):
+        return None
+    try:
+        with np.load(path, allow_pickle=False) as f:
+            cache = {k: f[k] for k in f.files}
+    except (OSError, ValueError, zipfile.BadZipFile) as e:
+        print(f"Ignoring an unreadable UCR cache at {path}: {e}")
+        return None
+    if int(cache.get("version", -1)) != UCR_CACHE_VERSION:
+        return None
+    return cache
+
+
+def _download_ucr_cache(data_path):
+    """
+    Fetch the prebuilt cache from the repository's GitHub Release into `data_path`.
+
+    Returns the arrays, or None when the asset cannot be fetched (offline, or not published) or
+    is not a valid cache of the current version - the caller then builds it from the archive.
+    """
+    url = UCR_CACHE_RELEASE_URL
+    path = os.path.join(data_path, UCR_CACHE_FILENAME)
+    tmp_path = path[:-len(".npz")] + ".download.npz"
+    os.makedirs(data_path, exist_ok=True)
+    print(f"Downloading the prebuilt UCR subset (~25 MB) from {url} ...")
+    try:
+        urllib.request.urlretrieve(url, tmp_path)
+    except Exception as e:
+        print(f"  Could not download it ({e}); building it from the UCR archive instead.")
+        if os.path.isfile(tmp_path):
+            os.remove(tmp_path)
+        return None
+    cache = _read_ucr_cache_file(tmp_path)
+    if cache is None:
+        print("  The downloaded file is not a valid cache; building it from the UCR archive.")
+        os.remove(tmp_path)
+        return None
+    os.replace(tmp_path, path)
+    return cache
+
+
+def load_ucr_cache(data_path):
+    """
+    The tutorial's UCR cache as a dict of arrays. Read from `data_path` when present, otherwise
+    downloaded from the GitHub Release, otherwise built from the UCR archive. Later calls in
+    the same process return the copy already in memory.
+    """
+    path = os.path.abspath(os.path.join(data_path, UCR_CACHE_FILENAME))
+    if path in _UCR_CACHE:
+        return _UCR_CACHE[path]
+    cache = _read_ucr_cache_file(path)
+    if cache is None:
+        cache = _download_ucr_cache(data_path)
+    if cache is None:
+        cache = build_ucr_cache(data_path)
+    _UCR_CACHE[path] = cache
+    return cache
 
 
 def _clean_series(x):
@@ -295,19 +517,17 @@ def load_ucr_dataset(data_path, name=TARGET_DATASET, split="train", length=SERIE
     "TW" datasets start at 3. Class indices are always derived from the TRAIN split so that
     train and test agree even when a rare class is absent from one of them.
     """
-    assert split in ("train", "test")
-    root = ensure_ucr_archive(data_path)
-    ds_dir = os.path.join(root, name)
-    if not os.path.isdir(ds_dir):
-        raise FileNotFoundError(f"UCR dataset {name!r} not found under {root}")
+    return _load_ucr_dataset(data_path, name, split, length, znorm, use_cache=True)
 
+
+def _load_ucr_dataset(data_path, name, split, length, znorm, use_cache):
+    assert split in ("train", "test")
     # Always read TRAIN to fix the label vocabulary, even when returning TEST.
-    train_labels, _ = _read_ucr_tsv(os.path.join(ds_dir, f"{name}_TRAIN.tsv"))
+    train_labels, _ = _read_ucr_split(data_path, name, "train", use_cache)
     classes = np.unique(train_labels)
     label_to_index = {float(c): i for i, c in enumerate(classes)}
 
-    split_file = f"{name}_{'TRAIN' if split == 'train' else 'TEST'}.tsv"
-    labels, series = _read_ucr_tsv(os.path.join(ds_dir, split_file))
+    labels, series = _read_ucr_split(data_path, name, split, use_cache)
 
     X = np.empty((len(series), length), dtype=np.float32)
     for i, row in enumerate(series):
@@ -327,8 +547,7 @@ def ucr_class_names(data_path, name=TARGET_DATASET):
     rendered as strings ("class 1", "class 2", ...) - enough to key a legend or a confusion
     matrix. SwedishLeaf's 15 classes are 15 tree species; the archive does not name them.
     """
-    root = ensure_ucr_archive(data_path)
-    train_labels, _ = _read_ucr_tsv(os.path.join(root, name, f"{name}_TRAIN.tsv"))
+    train_labels, _ = _read_ucr_split(data_path, name, "train")
     classes = np.unique(train_labels)
     return [f"class {int(c) if float(c).is_integer() else c}" for c in classes]
 
@@ -418,31 +637,22 @@ class UCRCorpusDataset(torch.utils.data.Dataset):
     """
 
     def __init__(self, data_path, names=None, length=SERIES_LEN, transform=None,
-                 per_dataset_cap=2000, seed=SEED, exclude=(), verbose=True):
+                 per_dataset_cap=UCR_CORPUS_CAP, seed=SEED, exclude=(), verbose=True):
         self.transform = transform
         self.length = length
-        root = ensure_ucr_archive(data_path)
-        if names is None:
-            names = _list_ucr_datasets(root)
-        names = [n for n in names if n not in set(exclude)]
-
-        rng = np.random.RandomState(seed)
-        chunks = []
-        self.corpus_sizes = {}
-        for name in names:
-            try:
-                X, _ = load_ucr_dataset(data_path, name, "train", length=length)
-            except Exception as e:  # a malformed dataset must not kill a long pretraining run
-                if verbose:
-                    print(f"  skipping {name}: {e}")
-                continue
-            if per_dataset_cap is not None and len(X) > per_dataset_cap:
-                keep = rng.choice(len(X), size=per_dataset_cap, replace=False)
-                X = X[keep]
-            chunks.append(X)
-            self.corpus_sizes[name] = len(X)
-
-        self.X = np.concatenate(chunks, axis=0) if chunks else np.zeros((0, length), np.float32)
+        if (names is None and not exclude and per_dataset_cap == UCR_CORPUS_CAP
+                and seed == SEED and length == SERIES_LEN):
+            # The notebooks' configuration: served ready-made from the cache.
+            cache = load_ucr_cache(data_path)
+            self.X = cache["corpus__X"]
+            self.corpus_sizes = {str(n): int(s) for n, s in
+                                 zip(cache["corpus__names"], cache["corpus__sizes"])}
+        else:
+            if names is None:
+                names = list_ucr_datasets(data_path)
+            names = [n for n in names if n not in set(exclude)]
+            self.X, self.corpus_sizes = _build_corpus(data_path, names, length, per_dataset_cap,
+                                                      seed, verbose, use_cache=True)
         if verbose:
             print(f"UCR pretraining corpus: {len(self.X)} series from "
                   f"{len(self.corpus_sizes)} datasets")
@@ -455,6 +665,27 @@ class UCRCorpusDataset(torch.utils.data.Dataset):
         if self.transform is not None:
             return self.transform(series)
         return series
+
+
+def _build_corpus(data_path, names, length, per_dataset_cap, seed, verbose, use_cache):
+    """Pool the TRAIN splits of `names` into one array; returns (X, {name: n_series})."""
+    rng = np.random.RandomState(seed)
+    chunks = []
+    sizes = {}
+    for name in names:
+        try:
+            X, _ = _load_ucr_dataset(data_path, name, "train", length, True, use_cache)
+        except Exception as e:  # a malformed dataset must not kill a long pretraining run
+            if verbose:
+                print(f"  skipping {name}: {e}")
+            continue
+        if per_dataset_cap is not None and len(X) > per_dataset_cap:
+            keep = rng.choice(len(X), size=per_dataset_cap, replace=False)
+            X = X[keep]
+        chunks.append(X)
+        sizes[name] = len(X)
+    X = np.concatenate(chunks, axis=0) if chunks else np.zeros((0, length), np.float32)
+    return X, sizes
 
 
 # =====================================================================================

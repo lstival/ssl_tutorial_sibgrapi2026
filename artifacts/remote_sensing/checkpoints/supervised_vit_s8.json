@@ -1,0 +1,15 @@
+{
+  "mechanism": "supervised",
+  "arch": "vit_s8",
+  "img_size": 64,
+  "epochs": 15,
+  "steps": 630,
+  "lr": 0.002,
+  "weight_decay": 0.0001,
+  "batch_size": 512,
+  "warmup_epochs": 2,
+  "split": "EuroSAT stratified 80/20, seed=42",
+  "test_accuracy": 0.882962962962963,
+  "train_minutes": 2.5,
+  "device": "NVIDIA RTX 4000 Ada Generation Laptop GPU"
+}

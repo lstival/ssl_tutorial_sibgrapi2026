@@ -50,7 +50,10 @@ python tools/verify_assets.py --remote   # confirm the release assets are reacha
 ```
 
 Datasets are *not* committed (they are multi-GB) and download themselves on first use: EuroSAT
-via torchvision with mirror fallback, and the UCR archive (~316 MB) from its official host.
+via torchvision with mirror fallback, and the UCR archive (~316 MB) from its official host. The
+time-series notebooks only need a ~25 MB subset of UCR (`data/UCRArchive_2018_tutorial.npz`),
+which they download from the `ucr-cache-v1` GitHub Release; if that is unreachable they build
+it once from the full archive instead.
 
 ### Verifying the weights
 
