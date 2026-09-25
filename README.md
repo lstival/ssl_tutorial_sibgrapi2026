@@ -42,11 +42,12 @@ jupyter notebook 00_setup_and_data.ipynb
 
 The first notebook in each track downloads the pretrained encoders it needs from the
 [weights release](https://github.com/lstival/ssl_tutorial_sibgrapi2026/releases/tag/weights-v1)
-the first time it runs, and reuses them afterwards. To fetch all ten encoders ahead of time
-(e.g. for an offline tutorial session), run:
+the first time it runs, and reuses them afterwards. Before an offline tutorial session, run
+each track's notebooks once (e.g. `python tools/run_notebooks_ci.py`) to cache every encoder
+locally; to only confirm the release assets are reachable, run:
 
 ```bash
-python tools/verify_assets.py --remote   # confirm the release assets are reachable
+python tools/verify_assets.py --remote
 ```
 
 Datasets are *not* committed (they are multi-GB) and download themselves on first use: EuroSAT
@@ -88,6 +89,8 @@ python tools/run_notebooks_ci.py                  # both tracks, CPU, local or C
 python tools/run_notebooks_ci.py --track time_series --only 00,01
 ```
 
+CI also runs `ruff check .` and the unit tests (`python -m pytest`) on every push.
+
 ## Repository layout
 
 ```
@@ -113,10 +116,11 @@ src/
     └── pretraining/            Offline SSL pretraining on the pooled 128-dataset UCR corpus
 
 artifacts/<domain>/checkpoints/ Pretrained encoders -- downloaded from the weights release, see below
-site/                           The tutorial website (GitHub Pages)
+docs/                           The tutorial website (GitHub Pages)
 tools/
 ├── verify_assets.py            Checks every encoder is present locally and downloadable
 └── run_notebooks_ci.py         Executes every notebook headless and reports what broke (CI + Colab smoke test)
+tests/                          Fast CPU unit tests (shapes, SSL losses, shared helpers, module drift)
 ```
 
 This repository ships the tutorial itself: the notebooks, the modules they import, the
@@ -126,7 +130,7 @@ internal planning notes -- is kept out of it.
 
 ## Pretrained encoders
 
-Ten encoders are committed, all of them loaded by the notebooks. Remote sensing uses a
+Ten encoders are published on the `weights-v1` release, all of them loaded by the notebooks. Remote sensing uses a
 ViT-Small/8 (64×64 input, 8×8 token grid, embed dim 384); time series uses a patch Transformer
 (128-step series, patch 16, embed dim 128).
 
@@ -167,7 +171,7 @@ makes them comparable. The headline finding is that **the ranking flips between 
 Contrastive learning wins on imagery; self-distillation wins on time series. The paradigm is
 chosen by the structure of the data, not by which method is most recent.
 
-The website under `site/` renders these numbers directly from the result files in
+The website under `docs/` renders these numbers directly from the result files in
 `notebooks/*/figures/`.
 
 ## Citation

@@ -17,8 +17,8 @@ This script:
     dino_loss, ema_update, gpu_multicrop -- plus the same warmup / freeze / clip / EMA-cap
     logic, so a winning trial's hyperparameters drop straight into train_dino.py.
   * Runs each trial as a PROXY_STEPS (default 4000) pretrain on the GPU patch cache
-    (mmap'd once, shared across trials), then a capped EuroSAT linear probe, maximizing
-    probe accuracy.
+    (mmap'd once, shared across trials), then a capped EuroSAT linear probe scored on a
+    validation split of the train side (never the test split), maximizing probe accuracy.
   * Searches the knobs that actually move DINO quality on a small backbone + small corpus:
     lr, weight_decay, out_dim, tau_teacher (target), tau_student, tau_teacher_warmup_steps,
     freeze_last_layer_steps, ema_momentum_start, n_local, batch_size.
@@ -37,39 +37,25 @@ import argparse
 import math
 import os
 import sys
+from types import SimpleNamespace
 
-import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
 
-sys.path.insert(0, os.path.dirname(__file__))
-NOTEBOOKS = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, NOTEBOOKS)
-
-import optuna  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import train_dino as dino_mod  # noqa: E402
-from gpu_aug import (  # noqa: E402
-    LocationShuffler,
-    SeCoPatchCache,
-    choose_cache_device,
-    norm_constants,
+from eurosat_probe import hpo_probe_accuracy  # noqa: E402
+from gpu_aug import LocationShuffler  # noqa: E402
+from pretrain_utils import (  # noqa: E402
+    _validate_corpus_args,
+    add_dataset_args,
+    build_patch_cache,
+    dataset_norm,
 )
-from pretrain_utils import resolve_locations  # noqa: E402
-from sklearn.linear_model import LogisticRegression  # noqa: E402
-from sklearn.metrics import accuracy_score  # noqa: E402
 
-from tutorial_rs import (  # noqa: E402
-    EUROSAT_MEAN,
-    EUROSAT_STD,
-    IMG_SIZE,
-    build_eval_transform,
-    build_vit_s8,
-    get_device,
-    load_eurosat,
-    seed_everything,
-    stratified_split,
-)
+from tutorial_rs import build_vit_s8, get_device, seed_everything  # noqa: E402
 
 PROXY_STEPS = int(os.environ.get("PROXY_STEPS", 4000))
 PROBE_SUBSET_PER_CLASS = 200
@@ -77,56 +63,13 @@ ENTROPY_FLOOR = float(os.environ.get("ENTROPY_FLOOR", 0.75))  # below this -> co
 device = get_device()
 
 _cache = {}
-_eurosat = {}
 
 
 def get_cache(args):
+    """Decoded patch cache for the selected corpus, built once and shared across trials."""
     if "cache" not in _cache:
-        locations = resolve_locations(args.seco_root, args.manifest)
-        c = SeCoPatchCache(args.seco_root, locations, res=args.preload_res,
-                           workers=args.preload_workers, cache_file=args.patch_cache)
-        c.to(choose_cache_device(c.nbytes, device))
-        _cache["cache"] = c
+        _cache["cache"], _ = build_patch_cache(args, device)
     return _cache["cache"]
-
-
-def get_eurosat_splits():
-    if "splits" not in _eurosat:
-        tf = build_eval_transform(img_size=IMG_SIZE, mean=EUROSAT_MEAN, std=EUROSAT_STD)
-        full = load_eurosat(os.path.join(NOTEBOOKS, "..", "..", "data"), transform=tf)
-        tr, te = stratified_split(full, test_size=0.2, seed=42)
-        _eurosat["splits"] = (full, tr, te)
-    return _eurosat["splits"]
-
-
-@torch.no_grad()
-def _extract(encoder, idx, full, pool, batch_size=256):
-    import torch.utils.data as data
-    loader = data.DataLoader(data.Subset(full, idx), batch_size=batch_size, shuffle=False)
-    feats, labels = [], []
-    encoder.eval()
-    for imgs, y in loader:
-        h = encoder.forward_features(imgs.to(device), pool=pool)
-        feats.append(h.cpu()); labels.append(y)
-    return torch.cat(feats).numpy(), torch.cat(labels).numpy()
-
-
-def probe_accuracy(encoder, pool="cls"):
-    full, tr, te = get_eurosat_splits()
-    labels_all = np.array([full.targets[i] for i in tr])
-    rng = np.random.RandomState(0)
-    keep = []
-    for c in np.unique(labels_all):
-        i = np.where(labels_all == c)[0]
-        rng.shuffle(i)
-        keep.extend(i[:PROBE_SUBSET_PER_CLASS])
-    tr_sub = [tr[i] for i in keep]
-    Xtr, ytr = _extract(encoder, tr_sub, full, pool)
-    Xte, yte = _extract(encoder, te, full, pool)
-    mu, sd = Xtr.mean(0, keepdims=True), Xtr.std(0, keepdims=True) + 1e-6
-    clf = LogisticRegression(max_iter=2000, C=1.0)
-    clf.fit((Xtr - mu) / sd, ytr)
-    return accuracy_score(yte, clf.predict((Xte - mu) / sd))
 
 
 def dino_proxy(trial, args):
@@ -147,7 +90,7 @@ def dino_proxy(trial, args):
     sample_gen = torch.Generator(device=cache.device); sample_gen.manual_seed(42)
     aug_gen = torch.Generator(device=device); aug_gen.manual_seed(43)
     shuffler = LocationShuffler(len(cache), batch_size, cache.device, generator=sample_gen)
-    mean, std = norm_constants(device)
+    mean, std = dataset_norm(args, device)
 
     student = dino_mod.DINOModel(build_vit_s8(), out_dim=out_dim).to(device)
     teacher = dino_mod.DINOModel(build_vit_s8(), out_dim=out_dim).to(device)
@@ -162,18 +105,15 @@ def dino_proxy(trial, args):
 
     ema_end, ema_max = 0.9995, 0.9998
     tau_warm0 = 0.04
-
-    class _A:
-        pass
-    aa = _A()
-    aa.n_global, aa.n_local = n_global, n_local
+    crop_counts = SimpleNamespace(n_global=n_global, n_local=n_local)
 
     student.train(); teacher.eval()
     last_entropy = 0.0
     for step in range(1, PROXY_STEPS + 1):
         loc_idx = shuffler.next_batch()
         raw = cache.sample_views(loc_idx, n_views=1, generator=sample_gen)
-        crops = dino_mod.gpu_multicrop(raw[0].to(device, non_blocking=True), aa, mean, std, aug_gen)
+        crops = dino_mod.gpu_multicrop(raw[0].to(device, non_blocking=True), crop_counts, mean, std,
+                                        aug_gen)
 
         if step <= warmup_steps:
             tau_t = tau_warm0 + (step / max(1, warmup_steps)) * (tau_teacher - tau_warm0)
@@ -206,7 +146,7 @@ def dino_proxy(trial, args):
                 last_entropy = -(tp * tp.clamp_min(1e-8).log()).sum(-1).mean().item()
             trial.report(last_entropy, step)
 
-    acc = probe_accuracy(teacher.encoder, pool="cls")
+    acc = hpo_probe_accuracy(teacher.encoder, device, pool="cls", per_class=PROBE_SUBSET_PER_CLASS)
     trial.set_user_attr("final_entropy", last_entropy)
     trial.set_user_attr("raw_probe_acc", acc)
     # Collapse penalty: an acceptable probe number with a near-degenerate teacher is a recipe
@@ -219,15 +159,18 @@ def dino_proxy(trial, args):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trials", type=int, default=40)
-    ap.add_argument("--seco-root", required=True)
+    ap.add_argument("--seco-root", default=None)
     ap.add_argument("--manifest", default=None)
     ap.add_argument("--patch-cache", default=None)
     ap.add_argument("--preload-res", type=int, default=128)
     ap.add_argument("--preload-workers", type=int, default=16)
+    ap.add_argument("--cache-device", default="auto", choices=("auto", "cuda", "cpu"))
     ap.add_argument("--study-name", default="dino_proxy_v2")
     ap.add_argument("--storage", default=None,
                     help="Optional optuna storage URL (e.g. sqlite:///dino_optuna.db) for resume.")
+    add_dataset_args(ap)
     args = ap.parse_args()
+    _validate_corpus_args(args)
 
     print(f"Device: {device} | trials={args.trials} | proxy_steps={PROXY_STEPS} | "
           f"entropy_floor={ENTROPY_FLOOR}")

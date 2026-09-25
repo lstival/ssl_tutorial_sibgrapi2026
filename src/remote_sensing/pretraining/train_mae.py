@@ -17,7 +17,6 @@ Usage:
 """
 
 import argparse
-import math
 import os
 import sys
 
@@ -27,20 +26,19 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(__file__))
-from gpu_aug import (  # noqa: E402
-    LocationShuffler,
-    gpu_augment,
-)
+from gpu_aug import gpu_augment  # noqa: E402
 from pretrain_utils import (  # noqa: E402
     RunningLogger,
     _validate_corpus_args,
     add_dataset_args,
-    build_patch_cache,
-    dataset_norm,
+    build_gpu_source,
+    enable_fast_cuda,
     load_train_state,
     resolve_locations,
     save_encoder_checkpoint,
     save_train_state,
+    train_log_path,
+    warmup_cosine_lambda,
 )
 from seco_data import (  # noqa: E402
     SeCoAugmentedDataset,
@@ -101,7 +99,7 @@ class MAEModel(nn.Module):
         self.encoder = encoder
         self.patch_size = patch_size
         self.num_patches = num_patches
-        embed_dim = encoder.pos_embed.shape[-1]
+        embed_dim = encoder.embed_dim
         patch_dim = patch_size * patch_size * in_chans
 
         self.decoder_embed = nn.Linear(embed_dim, decoder_dim)
@@ -181,25 +179,6 @@ def mae_reconstruction_loss(pred, imgs, mask, patch_size=PATCH_SIZE, norm_pix=Tr
     return loss
 
 
-def build_gpu_source(args, device):
-    """
-    Build the GPU augmentation pipeline: the decoded corpus as one uint8 tensor plus a shuffled
-    location stream, replacing the DataLoader entirely. Mirrors train_contrastive.py's path --
-    see gpu_aug.py for why this exists (the CPU/PIL pipeline leaves the GPU idle ~80% of the
-    time). MAE draws one view per step instead of a positive pair.
-    """
-    cache, cache_device = build_patch_cache(args, device)
-
-    sample_gen = torch.Generator(device=cache_device)
-    sample_gen.manual_seed(args.seed)
-    aug_gen = torch.Generator(device=device)
-    aug_gen.manual_seed(args.seed + 1)
-
-    shuffler = LocationShuffler(len(cache), args.batch_size, cache_device, generator=sample_gen)
-    mean, std = dataset_norm(args, device)
-    return cache, shuffler, sample_gen, aug_gen, mean, std
-
-
 def build_dataloader(args):
     # One view per step: unlike contrastive/DINO, MAE's pretext task comes from masking, not from
     # a positive pair. But that view must still be augmented -- see build_seco_mae_augmentations:
@@ -229,13 +208,7 @@ def train(args):
     _validate_corpus_args(args)
     device = get_device()
     print(f"Device: {device}")
-
-    # Let cuDNN pick the fastest conv/matmul kernels for our fixed input shape, and allow TF32
-    # matmuls on Ampere (RTX 3060) -- both are free speedups for a fixed-size ViT.
-    if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    enable_fast_cuda(device)
 
     # GPU augmentation is the default; --no-augment forces the CPU path because the
     # deterministic-view ablation has no GPU equivalent (gpu_augment always augments).
@@ -262,27 +235,19 @@ def train(args):
     # the decoder is still random, which is what made the previous run's loss spike (1.48 -> 2.05
     # between steps 1 and 2) before it recovered.
     warmup = max(0, min(args.warmup_steps, args.steps - 1))
-
-    def lr_lambda(step):
-        if step < warmup:
-            return (step + 1) / (warmup + 1)
-        progress = (step - warmup) / max(1, args.steps - warmup)
-        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
-        return (1.0 / 50) + (1.0 - 1.0 / 50) * cosine  # decay to lr/50, matching the old eta_min
-
-    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, warmup_cosine_lambda(args.steps, warmup))
     # Mixed precision: ~2x throughput and lower VRAM on Ampere, letting us use a larger batch.
     use_amp = device.type == "cuda" and not args.no_amp
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
-    logger = RunningLogger(os.path.join(os.path.dirname(args.out), "mae_train_log.jsonl"))
+    logger = RunningLogger(train_log_path(args.out))
 
     # Full-state resume checkpoint (model + optimizer + scheduler + step), distinct from the
     # encoder-only checkpoint the notebooks load. Lives as a sidecar next to --out.
     state_path = os.path.splitext(args.out)[0] + ".train.pt"
     start_step = 0
     if args.resume:
-        start_step = load_train_state(state_path, model, optimizer, scheduler, device)
+        start_step, _ = load_train_state(state_path, model, optimizer, scheduler, device)
         if start_step >= args.steps:
             print(f"Already at step {start_step} >= target {args.steps}; nothing to do.")
             logger.close()

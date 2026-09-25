@@ -1,63 +1,45 @@
 """
-Optuna hyperparameter search for the MAE and DINO pretraining recipes.
+Optuna hyperparameter search for the MAE and contrastive pretraining recipes (DINO has its
+own search, optuna_dino.py, matched to train_dino.py's anti-collapse procedure).
 
 Rather than run a full 10k-step pretrain per trial (hours each), we use a cheap *proxy*: a
 short pretrain (PROXY_STEPS) on the SeCo pool, then a linear probe on EuroSAT features, and
-maximize probe accuracy. The SeCo dataset is preloaded once and shared across trials, and the
-EuroSAT probe features are cached per-encoder. This keeps each trial to ~1-2 min on the RTX 3060.
+maximize probe accuracy on a validation split carved from the EuroSAT *train* side (see
+eurosat_probe.hpo_probe_accuracy -- the test split is never used for model selection). The SeCo
+dataset is preloaded once and shared across trials. Each trial takes ~1-2 min on an RTX 3060.
 
-The winning hyperparameters are then used for a full-length retrain (train_mae.py / train_dino.py).
+The winning hyperparameters are then used for a full-length retrain (train_mae.py /
+train_contrastive.py).
 
 Usage:
     python optuna_search.py --mechanism mae         --trials 20
-    python optuna_search.py --mechanism dino        --trials 20
     python optuna_search.py --mechanism contrastive --trials 20
 """
 import argparse
 import os
 import sys
-from copy import deepcopy
 
-import numpy as np
+import optuna
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torchvision import transforms
 
-sys.path.insert(0, os.path.dirname(__file__))
-NOTEBOOKS = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, NOTEBOOKS)
-
-import optuna
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import train_contrastive as contrastive_mod  # noqa: E402
-import train_dino as dino_mod  # noqa: E402
 import train_mae as mae_mod  # noqa: E402
+from eurosat_probe import hpo_probe_accuracy  # noqa: E402
+from pretrain_utils import DATA_DIR, warmup_cosine_lambda  # noqa: E402
 from seco_data import (  # noqa: E402
-    SECO_MEAN,
-    SECO_STD,
     SeCoAugmentedDataset,
     build_seco_augmentations,
     build_seco_mae_augmentations,
     read_manifest,
 )
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
 
-from tutorial_rs import (  # noqa: E402
-    EUROSAT_MEAN,
-    EUROSAT_STD,
-    IMG_SIZE,
-    build_eval_transform,
-    build_vit_s8,
-    get_device,
-    load_eurosat,
-    seed_everything,
-    stratified_split,
-)
+from tutorial_rs import IMG_SIZE, build_vit_s8, get_device, seed_everything  # noqa: E402
 
-SECO_ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "seco", "seasonal_contrast_100k")
-MANIFEST = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data", "seco", "manifest.txt")
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+SECO_ROOT = os.path.join(DATA_DIR, "seco", "seasonal_contrast_100k")
+MANIFEST = os.path.join(DATA_DIR, "seco", "manifest.txt")
 
 PROXY_STEPS = int(os.environ.get("PROXY_STEPS", 1000))  # short pretrain per trial
 PROBE_SUBSET_PER_CLASS = 200  # cap EuroSAT probe train size for speed
@@ -68,61 +50,15 @@ device = get_device()
 # Shared, load-once resources
 # ----------------------------------------------------------------------------------------
 _seco_cache = {}
-def get_seco_dataset(transform, multicrop=False):
+def get_seco_dataset(transform):
     """Preload SeCo once (uint8 patches in RAM) and reuse across trials."""
-    key = "multicrop" if multicrop else "single"
-    if key not in _seco_cache:
+    if "single" not in _seco_cache:
         locations = read_manifest(MANIFEST)
-        ds = SeCoAugmentedDataset(SECO_ROOT, transform, n_views=1, locations=locations, preload=True)
-        _seco_cache[key] = ds
-    ds = _seco_cache[key]
+        _seco_cache["single"] = SeCoAugmentedDataset(SECO_ROOT, transform, n_views=1,
+                                                     locations=locations, preload=True)
+    ds = _seco_cache["single"]
     ds.transform = transform  # swap the (cheap) transform, keep the preloaded patches
     return ds
-
-
-_eurosat_cache = {}
-def get_eurosat_splits():
-    if "splits" not in _eurosat_cache:
-        tf = build_eval_transform(img_size=IMG_SIZE, mean=EUROSAT_MEAN, std=EUROSAT_STD)
-        full = load_eurosat(DATA_DIR, transform=tf)
-        tr, te = stratified_split(full, test_size=0.2, seed=42)
-        _eurosat_cache["splits"] = (full, tr, te)
-    return _eurosat_cache["splits"]
-
-
-@torch.no_grad()
-def extract_features(encoder, subset_idx, full, pool, batch_size=256):
-    import torch.utils.data as data
-    loader = data.DataLoader(data.Subset(full, subset_idx), batch_size=batch_size, shuffle=False)
-    feats, labels = [], []
-    encoder.eval()
-    for imgs, y in loader:
-        imgs = imgs.to(device)
-        h = encoder.forward_features(imgs, pool=pool)
-        feats.append(h.cpu()); labels.append(y)
-    return torch.cat(feats).numpy(), torch.cat(labels).numpy()
-
-
-def probe_accuracy(encoder, pool):
-    full, tr, te = get_eurosat_splits()
-    # cap probe-train size per class for speed
-    labels_all = np.array([full.targets[i] for i in tr])
-    rng = np.random.RandomState(0)
-    keep = []
-    for c in np.unique(labels_all):
-        idx = np.where(labels_all == c)[0]
-        rng.shuffle(idx)
-        keep.extend(idx[:PROBE_SUBSET_PER_CLASS])
-    tr_sub = [tr[i] for i in keep]
-    Xtr, ytr = extract_features(encoder, tr_sub, full, pool)
-    Xte, yte = extract_features(encoder, te, full, pool)
-    # Standardize features -> logistic regression converges much faster/stabler on ViT embeddings.
-    mu, sd = Xtr.mean(0, keepdims=True), Xtr.std(0, keepdims=True) + 1e-6
-    Xtr = (Xtr - mu) / sd
-    Xte = (Xte - mu) / sd
-    clf = LogisticRegression(max_iter=2000, C=1.0)
-    clf.fit(Xtr, ytr)
-    return accuracy_score(yte, clf.predict(Xte))
 
 
 # ----------------------------------------------------------------------------------------
@@ -144,7 +80,7 @@ def train_mae_proxy(trial):
     # ones. Searching under a deterministic pipeline tunes for the memorization regime and the
     # winning hyperparameters do not transfer to the real run.
     tf = build_seco_mae_augmentations(img_size=IMG_SIZE)
-    ds = get_seco_dataset(tf, multicrop=False)
+    ds = get_seco_dataset(tf)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=0)
 
     encoder = build_vit_s8().to(device)
@@ -155,14 +91,7 @@ def train_mae_proxy(trial):
     # Same warmup->cosine schedule as train_mae.py (scaled to the proxy's shorter budget), so the
     # proxy ranks hyperparameters under the schedule they will actually be trained with.
     warmup = max(1, PROXY_STEPS // 20)
-
-    def _lr_lambda(step):
-        if step < warmup:
-            return (step + 1) / (warmup + 1)
-        progress = (step - warmup) / max(1, PROXY_STEPS - warmup)
-        return (1 / 50) + (1 - 1 / 50) * 0.5 * (1 + np.cos(np.pi * progress))
-
-    sched = optim.lr_scheduler.LambdaLR(opt, _lr_lambda)
+    sched = optim.lr_scheduler.LambdaLR(opt, warmup_cosine_lambda(PROXY_STEPS, warmup))
     scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
 
     model.train()
@@ -179,66 +108,7 @@ def train_mae_proxy(trial):
         opt.zero_grad(set_to_none=True)
         scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step()
 
-    return probe_accuracy(model.encoder, pool="mean")
-
-
-# ----------------------------------------------------------------------------------------
-# DINO proxy
-# ----------------------------------------------------------------------------------------
-def train_dino_proxy(trial):
-    lr = trial.suggest_float("lr", 1e-4, 2e-3, log=True)
-    weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-2, log=True)
-    out_dim = trial.suggest_categorical("out_dim", [1024, 2048, 4096])
-    tau_teacher = trial.suggest_float("tau_teacher", 0.02, 0.07)
-    tau_student = trial.suggest_float("tau_student", 0.1, 0.2)
-    ema_start = trial.suggest_float("ema_momentum_start", 0.99, 0.9975)
-    n_local = trial.suggest_int("n_local", 2, 6)
-    batch_size = trial.suggest_categorical("batch_size", [48, 64])
-
-    seed_everything(42)
-    global_tf = build_seco_augmentations(img_size=IMG_SIZE)
-    local_tf = transforms.Compose([
-        transforms.RandomResizedCrop(size=IMG_SIZE, scale=(0.2, 0.5)),
-        transforms.RandomHorizontalFlip(p=0.5), transforms.RandomVerticalFlip(p=0.5),
-        transforms.ToTensor(), transforms.Normalize(SECO_MEAN, SECO_STD),
-    ])
-    n_global = 2
-    multicrop = dino_mod.MultiCropTransform(global_tf, local_tf, n_global=n_global, n_local=n_local)
-    ds = get_seco_dataset(multicrop, multicrop=True)
-    loader = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=0,
-                        collate_fn=dino_mod._multicrop_collate)
-
-    student = dino_mod.DINOModel(build_vit_s8(), out_dim=out_dim).to(device)
-    teacher = deepcopy(student).to(device)
-    for p in teacher.parameters():
-        p.requires_grad = False
-    opt = optim.AdamW(student.parameters(), lr=lr, weight_decay=weight_decay)
-    sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=PROXY_STEPS, eta_min=lr / 50)
-    center = torch.zeros(1, out_dim, device=device)
-    scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
-
-    student.train(); teacher.eval()
-    it = iter(loader)
-    for step in range(PROXY_STEPS):
-        try:
-            crops = next(it)
-        except StopIteration:
-            it = iter(loader); crops = next(it)
-        crops = [c.to(device, non_blocking=True) for c in crops]
-        with torch.cuda.amp.autocast(enabled=device.type == "cuda"):
-            s_logits = [student(c) for c in crops]
-            with torch.no_grad():
-                t_logits = [teacher(c) for c in crops[:n_global]]
-        s_logits = [s.float() for s in s_logits]
-        t_logits = [t.float() for t in t_logits]
-        loss = dino_mod.dino_loss(s_logits, t_logits, center, tau_student, tau_teacher)
-        opt.zero_grad(set_to_none=True)
-        scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step()
-        m = 1.0 - (1.0 - ema_start) * (1 + np.cos(step / PROXY_STEPS * np.pi)) / 2
-        dino_mod.ema_update(student, teacher, m=m)
-        center = dino_mod.update_center(center, t_logits, momentum=0.9)
-
-    return probe_accuracy(teacher.encoder, pool="cls")
+    return hpo_probe_accuracy(model.encoder, device, pool="mean", per_class=PROBE_SUBSET_PER_CLASS)
 
 
 # ----------------------------------------------------------------------------------------
@@ -257,7 +127,7 @@ def train_contrastive_proxy(trial):
     # Same augmented positive-pair pipeline as train_contrastive.py (two independent augmentations
     # of the same season). n_views=2 makes the dataset return a [view_a, view_b] pair per sample.
     tf = build_seco_augmentations(img_size=IMG_SIZE)
-    ds = get_seco_dataset(tf, multicrop=False)
+    ds = get_seco_dataset(tf)
     ds.n_views = 2  # the shared single-view cache is fine; only the per-item view count changes
     loader = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=0)
 
@@ -266,14 +136,7 @@ def train_contrastive_proxy(trial):
     # Same warmup->cosine schedule shape as the MAE proxy so hyperparameters are ranked under a
     # schedule close to the real run (train_contrastive.py uses cosine to lr/50).
     warmup = max(1, PROXY_STEPS // 20)
-
-    def _lr_lambda(step):
-        if step < warmup:
-            return (step + 1) / (warmup + 1)
-        progress = (step - warmup) / max(1, PROXY_STEPS - warmup)
-        return (1 / 50) + (1 - 1 / 50) * 0.5 * (1 + np.cos(np.pi * progress))
-
-    sched = optim.lr_scheduler.LambdaLR(opt, _lr_lambda)
+    sched = optim.lr_scheduler.LambdaLR(opt, warmup_cosine_lambda(PROXY_STEPS, warmup))
     scaler = torch.cuda.amp.GradScaler(enabled=device.type == "cuda")
 
     model.train()
@@ -291,12 +154,12 @@ def train_contrastive_proxy(trial):
         scaler.scale(loss).backward(); scaler.step(opt); scaler.update(); sched.step()
 
     # Contrastive trains the [CLS] token directly, so probe it via CLS pooling (matches Notebook 4).
-    return probe_accuracy(model.encoder, pool="cls")
+    return hpo_probe_accuracy(model.encoder, device, pool="cls", per_class=PROBE_SUBSET_PER_CLASS)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mechanism", choices=["mae", "dino", "contrastive"], required=True)
+    ap.add_argument("--mechanism", choices=["mae", "contrastive"], required=True)
     ap.add_argument("--trials", type=int, default=20)
     ap.add_argument("--study-name", default=None)
     args = ap.parse_args()
@@ -304,7 +167,6 @@ def main():
     print(f"Device: {device} | mechanism={args.mechanism} | trials={args.trials} | proxy_steps={PROXY_STEPS}")
     objective = {
         "mae": train_mae_proxy,
-        "dino": train_dino_proxy,
         "contrastive": train_contrastive_proxy,
     }[args.mechanism]
     study = optuna.create_study(direction="maximize",

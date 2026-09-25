@@ -980,15 +980,6 @@ class TSEncoder(nn.Module):
             return feat
         return feat.mean(dim=1)
 
-    def forward_tokens(self, x):
-        """
-        Full patch-token sequence per channel, [CLS] dropped: (B, C, num_patches, embed_dim).
-        Used by anything that needs the per-patch representation rather than a pooled vector.
-        """
-        B, L, C = x.shape
-        tokens = self.forward(x)[:, 1:, :]  # (B*C, P, D)
-        return tokens.reshape(B, C, self.num_patches, self.embed_dim)
-
 
 def build_ts_encoder(**kwargs):
     """Factory for the shared patch Transformer with the tutorial defaults."""
@@ -1088,7 +1079,6 @@ CHECKPOINT_REPO_PATH = "artifacts/time_series/checkpoints"
 CHECKPOINT_BASE_URL = (
     f"https://github.com/{GITHUB_REPO}/releases/download/{WEIGHTS_RELEASE_TAG}/"
 )
-PRECOMPUTED_BASE_URL = CHECKPOINT_BASE_URL
 
 # Where a local clone keeps the weights, relative to a notebook in notebooks/time_series/.
 LOCAL_CHECKPOINT_DIRS = (
@@ -1331,34 +1321,6 @@ def plot_embedding_scatter(embedding_2d, labels, class_names=None, title=None, f
         plt.show()
         plt.close()
     return ax
-
-
-def plot_reconstruction(original, reconstruction, mask=None, patch_len=PATCH_LEN,
-                        stride=PATCH_STRIDE, title=None, figsize=(11, 3)):
-    """
-    Show an original series against a model reconstruction, shading the patches that were
-    masked out - the 1D analogue of MAE's masked-image figure in the remote sensing part.
-    """
-    original = np.asarray(original).reshape(-1)
-    reconstruction = np.asarray(reconstruction).reshape(-1)
-    plt.figure(figsize=figsize)
-    if mask is not None:
-        for p, m in enumerate(np.asarray(mask).reshape(-1)):
-            if m:
-                s = p * stride
-                plt.axvspan(s, min(s + patch_len, len(original)),
-                            color="0.75", alpha=0.5, lw=0)
-    plt.plot(original, color="0.15", linewidth=1.4, label="original")
-    plt.plot(reconstruction, color="tab:red", linestyle="--", linewidth=1.4,
-             label="reconstruction")
-    plt.xlabel("time step")
-    plt.yticks([])
-    plt.legend(fontsize=8)
-    if title:
-        plt.title(title)
-    plt.tight_layout()
-    plt.show()
-    plt.close()
 
 
 def overlay_attention_1d(series_1d, attn_patches, patch_len=PATCH_LEN, stride=PATCH_STRIDE,

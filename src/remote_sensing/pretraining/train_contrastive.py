@@ -29,18 +29,17 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(__file__))
-from gpu_aug import (  # noqa: E402
-    LocationShuffler,
-    gpu_augment,
-)
+from gpu_aug import gpu_augment  # noqa: E402
 from pretrain_utils import (  # noqa: E402
+    ARCHS,
     RunningLogger,
     _validate_corpus_args,
     add_dataset_args,
-    build_patch_cache,
-    dataset_norm,
+    build_gpu_source,
+    enable_fast_cuda,
     resolve_locations,
     save_encoder_checkpoint,
+    train_log_path,
 )
 from seco_data import (  # noqa: E402
     SeCoAugmentedDataset,
@@ -48,17 +47,7 @@ from seco_data import (  # noqa: E402
     build_seco_augmentations,
 )
 
-from tutorial_rs import (  # noqa: E402
-    IMG_SIZE,
-    build_vit_s8,
-    build_vit_t8,
-    get_device,
-    seed_everything,
-)
-
-# Encoder variants selectable with --arch. Both are patch-8 at the fixed 64x64 input, so a
-# checkpoint from either loads into the downstream notebooks without pos-embed interpolation.
-ARCHS = {"vit_s8": build_vit_s8, "vit_t8": build_vit_t8}
+from tutorial_rs import IMG_SIZE, get_device, seed_everything  # noqa: E402
 
 
 class SimCLRModel(nn.Module):
@@ -67,10 +56,9 @@ class SimCLRModel(nn.Module):
     def __init__(self, encoder, embed_dim=None, hidden_dim=512, proj_dim=128):
         super().__init__()
         self.encoder = encoder
-        # Read the width off the encoder rather than hardcoding ViT-S's 384: --arch vit_t8 is
-        # 192-dimensional, and a fixed 384 would make the first projection Linear reject its input.
+        # Read the width off the encoder rather than hardcoding ViT-S's 384 (vit_t8 is 192-wide).
         if embed_dim is None:
-            embed_dim = encoder.pos_embed.shape[-1]
+            embed_dim = encoder.embed_dim
         self.projection_head = nn.Sequential(
             nn.Linear(embed_dim, hidden_dim),
             nn.ReLU(inplace=True),
@@ -126,27 +114,6 @@ def check_pool_size(n_locations, batch_size):
         )
 
 
-def build_gpu_source(args, device):
-    """
-    Build the GPU augmentation pipeline: the decoded corpus as one uint8 tensor plus a shuffled
-    location stream. Replaces the DataLoader entirely -- there is no per-sample Python work left
-    to farm out to workers, so there are no workers.
-    """
-    cache, cache_device = build_patch_cache(args, device)
-    check_pool_size(len(cache), args.batch_size)
-
-    # Two generators because the two stages live on different devices when the cache is in host
-    # RAM: index sampling happens wherever the cache is, augmentation always on the GPU.
-    sample_gen = torch.Generator(device=cache_device)
-    sample_gen.manual_seed(args.seed)
-    aug_gen = torch.Generator(device=device)
-    aug_gen.manual_seed(args.seed + 1)
-
-    shuffler = LocationShuffler(len(cache), args.batch_size, cache_device, generator=sample_gen)
-    mean, std = dataset_norm(args, device)
-    return cache, shuffler, sample_gen, aug_gen, mean, std
-
-
 def build_dataloader(args):
     transform = build_seco_augmentations(img_size=IMG_SIZE)
     locations = resolve_locations(args.seco_root, args.manifest)
@@ -183,18 +150,13 @@ def train(args):
     _validate_corpus_args(args)
     device = get_device()
     print(f"Device: {device}")
-
-    if device.type == "cuda":
-        # TF32 matmuls are the default-off fast path on Ampere and later; at ViT-S/8 widths the
-        # accuracy difference is nil and the throughput difference is not.
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
+    enable_fast_cuda(device)
 
     use_gpu_aug = not args.no_gpu_aug and device.type == "cuda"
     cache = loader = None
     if use_gpu_aug:
         cache, shuffler, sample_gen, aug_gen, mean, std = build_gpu_source(args, device)
+        check_pool_size(len(cache), args.batch_size)
         n_locations = len(cache)
     else:
         dataset, loader = build_dataloader(args)
@@ -222,10 +184,7 @@ def train(args):
     for _ in range(start_step):
         scheduler.step()
 
-    # Name the log after the checkpoint, not just its directory: RunningLogger appends, so a
-    # fixed "contrastive_train_log.jsonl" would interleave this run's steps (restarting at 1)
-    # into a previous run's history and silently corrupt it for analysis.
-    log_path = os.path.splitext(args.out)[0] + "_train_log.jsonl"
+    log_path = train_log_path(args.out)
     logger = RunningLogger(log_path)
     print(f"Logging to {log_path}")
 

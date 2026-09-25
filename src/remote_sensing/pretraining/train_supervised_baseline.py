@@ -19,7 +19,6 @@ Usage:
 """
 import argparse
 import json
-import math
 import os
 import sys
 import time
@@ -29,7 +28,8 @@ import torch.nn as nn
 import torch.utils.data as data
 from tqdm.auto import tqdm
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pretrain_utils import REPO_ROOT, warmup_cosine_lambda  # noqa: E402
 
 from tutorial_rs import (  # noqa: E402
     EUROSAT_CLASSES,
@@ -45,7 +45,7 @@ from tutorial_rs import (  # noqa: E402
     stratified_split,
 )
 
-ROOT = os.path.join(os.path.dirname(__file__), "..", "..", "..")
+ROOT = REPO_ROOT
 
 
 def main():
@@ -75,7 +75,7 @@ def main():
 
     seed_everything(42)
     model = build_vit_s8().to(device)
-    head = nn.Linear(model.pos_embed.shape[-1], len(EUROSAT_CLASSES)).to(device)
+    head = nn.Linear(model.embed_dim, len(EUROSAT_CLASSES)).to(device)
     params = list(model.parameters()) + list(head.parameters())
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss()
@@ -91,15 +91,8 @@ def main():
     steps_per_epoch = len(loader)
     total_steps = steps_per_epoch * args.epochs
     warmup_steps = steps_per_epoch * args.warmup_epochs
-
-    def lr_lambda(step):
-        if step < warmup_steps:
-            return (step + 1) / (warmup_steps + 1)
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        cosine = 0.5 * (1.0 + math.cos(math.pi * progress))
-        return (1.0 / 50) + (1.0 - 1.0 / 50) * cosine
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, warmup_cosine_lambda(total_steps, warmup_steps))
 
     start = time.time()
     model.train()

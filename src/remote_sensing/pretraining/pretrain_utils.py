@@ -1,99 +1,40 @@
 """
-Small shared helpers for the pretraining scripts in this folder (train_contrastive.py,
-train_mae.py, train_dino.py). Kept separate from src/remote_sensing/tutorial_rs.py: this module is
-training-loop plumbing specific to large-scale offline pretraining (checkpoint saving,
-logging, resuming), not something the notebooks themselves need.
+Shared helpers for the remote-sensing pretraining / evaluation scripts in this folder: corpus
+selection (SeCo vs BigEarthNet), the GPU augmentation source, the encoder registry, and the
+modality-agnostic training plumbing re-exported from src/common/train_utils.py. Kept separate
+from src/remote_sensing/tutorial_rs.py, which the notebooks download as a single file.
 """
 
-import json
 import os
 import sys
-import time
 
 import torch
 
-# src/remote_sensing/tutorial_rs.py is the single source of truth for the model architecture (ViT-S/8,
-# TransformerBlock, ...). We import it directly rather than duplicating the architecture here,
-# so a change to the backbone only ever needs to happen in one place.
-NOTEBOOKS_DIR = os.path.join(os.path.dirname(__file__), "..")
-if NOTEBOOKS_DIR not in sys.path:
-    sys.path.insert(0, NOTEBOOKS_DIR)
+# Two import roots, both inserted here so every script in this folder gets them by importing
+# this module: src/remote_sensing (tutorial_rs.py -- the single source of truth for the ViT
+# architecture) and src/common (modality-agnostic training plumbing shared with time series).
+SRC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+for _path in (SRC_DIR, os.path.join(SRC_DIR, "..", "common")):
+    if _path not in sys.path:
+        sys.path.insert(0, _path)
 
+from train_utils import (  # noqa: E402,F401 -- re-exported for the scripts in this folder
+    RunningLogger,
+    enable_fast_cuda,
+    load_train_state,
+    save_encoder_checkpoint,
+    save_train_state,
+    train_log_path,
+    warmup_cosine_lambda,
+)
 
-def save_encoder_checkpoint(encoder, out_path, extra=None):
-    """
-    Save only the encoder's state dict (not any pretraining-only head/decoder), matching what
-    src/remote_sensing/tutorial_rs.py's `try_load_checkpoint` expects to load into a bare `build_vit_s8()`
-    in the tutorial notebooks and in Notebook 4's comparative evaluation.
-    """
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    torch.save(encoder.state_dict(), out_path)
-    if extra is not None:
-        meta_path = os.path.splitext(out_path)[0] + ".json"
-        with open(meta_path, "w", encoding="utf-8") as f:
-            json.dump(extra, f, indent=2)
-    print(f"Saved encoder checkpoint to {out_path}")
+from tutorial_rs import build_vit_s8, build_vit_t8  # noqa: E402
 
-
-def save_train_state(path, *, step, model, optimizer, scheduler, extra=None):
-    """
-    Save a *complete* training checkpoint (model + optimizer + scheduler + step), separate from
-    the encoder-only checkpoint that the notebooks consume. This is what makes `--resume` faithful:
-    unlike save_encoder_checkpoint (encoder weights only), it captures everything needed to
-    continue the run exactly where it left off. Written to a `.train.pt` sidecar next to `out`.
-    """
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    state = {
-        "step": step,
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict(),
-    }
-    if extra is not None:
-        state["extra"] = extra
-    # Write to a temp file then atomically replace, so an interrupt mid-write can't corrupt the
-    # resume checkpoint (the old one stays intact until the new one is fully flushed).
-    tmp = path + ".tmp"
-    torch.save(state, tmp)
-    os.replace(tmp, path)
-
-
-def load_train_state(path, model, optimizer, scheduler, device):
-    """
-    Restore a checkpoint written by save_train_state. Returns the step to resume *after*
-    (i.e. the loop should continue from step+1). Returns 0 if no checkpoint exists.
-    """
-    if not os.path.isfile(path):
-        return 0
-    state = torch.load(path, map_location=device)
-    model.load_state_dict(state["model"])
-    optimizer.load_state_dict(state["optimizer"])
-    scheduler.load_state_dict(state["scheduler"])
-    print(f"Resumed training state from {path} at step {state['step']}")
-    return state["step"]
-
-
-class RunningLogger:
-    """Minimal step/loss logger: prints periodically and writes a JSONL history file."""
-
-    def __init__(self, log_path, print_every=50):
-        self.log_path = log_path
-        self.print_every = print_every
-        self.start_time = time.time()
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        self._f = open(log_path, "a", encoding="utf-8")
-
-    def log(self, step, **metrics):
-        record = {"step": step, "elapsed_sec": round(time.time() - self.start_time, 1), **metrics}
-        self._f.write(json.dumps(record) + "\n")
-        self._f.flush()
-        if step % self.print_every == 0:
-            metric_str = " ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}"
-                                   for k, v in metrics.items())
-            print(f"[step {step:6d} | {record['elapsed_sec']:8.1f}s] {metric_str}")
-
-    def close(self):
-        self._f.close()
+# Encoder variants selectable with --arch. Both are patch-8 at the fixed 64x64 input, so a
+# checkpoint from either loads into the downstream notebooks without pos-embed interpolation.
+ARCHS = {"vit_s8": build_vit_s8, "vit_t8": build_vit_t8}
+REPO_ROOT = os.path.abspath(os.path.join(SRC_DIR, "..", ".."))
+DATA_DIR = os.path.join(REPO_ROOT, "data")
 
 
 def resolve_locations(seco_root, manifest_path=None):
@@ -160,7 +101,6 @@ def build_patch_cache(args, device):
     device. Returns (cache, cache_device). The cache object exposes the SeCoPatchCache
     interface either way (see bigearthnet_data.BigEarthNetPatchCache).
     """
-    import torch as _torch
     from gpu_aug import choose_cache_device
 
     if getattr(args, "dataset", "seco") == "bigearthnet":
@@ -184,6 +124,28 @@ def build_patch_cache(args, device):
     if args.cache_device == "auto":
         cache_device = choose_cache_device(cache.nbytes, device)
     else:
-        cache_device = _torch.device(args.cache_device)
+        cache_device = torch.device(args.cache_device)
     cache.to(cache_device)
     return cache, cache_device
+
+
+def build_gpu_source(args, device):
+    """
+    GPU augmentation source shared by the three trainers: the decoded corpus as one uint8 tensor
+    plus a shuffled location stream, replacing the DataLoader entirely (see gpu_aug.py).
+
+    Returns (cache, shuffler, sample_gen, aug_gen, mean, std). Two generators because the two
+    stages live on different devices when the cache is in host RAM: index sampling happens
+    wherever the cache is, augmentation always on the GPU.
+    """
+    from gpu_aug import LocationShuffler
+
+    cache, cache_device = build_patch_cache(args, device)
+    sample_gen = torch.Generator(device=cache_device)
+    sample_gen.manual_seed(args.seed)
+    aug_gen = torch.Generator(device=device)
+    aug_gen.manual_seed(args.seed + 1)
+
+    shuffler = LocationShuffler(len(cache), args.batch_size, cache_device, generator=sample_gen)
+    mean, std = dataset_norm(args, device)
+    return cache, shuffler, sample_gen, aug_gen, mean, std

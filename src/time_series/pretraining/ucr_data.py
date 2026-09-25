@@ -23,15 +23,15 @@ if TS_DIR not in sys.path:
 
 from tutorial_ts import (  # noqa: E402
     SERIES_LEN,
-    TARGET_DATASET,
+    UCR_CORPUS_CAP,
     UCRCorpusDataset,
-    list_ucr_datasets,
 )
 
 # Default cap on how many series any single UCR dataset may contribute. The archive is very
 # unbalanced (Crop has 7,200 training series, Chinatown has 20), so an uncapped pool would be
-# dominated by a handful of members. 2,000 keeps every dataset whole except the largest few.
-DEFAULT_PER_DATASET_CAP = 2000
+# dominated by a handful of members. Aliased (not re-declared) from tutorial_ts: UCRCorpusDataset
+# only takes its fast cached path when the cap equals UCR_CORPUS_CAP.
+DEFAULT_PER_DATASET_CAP = UCR_CORPUS_CAP
 
 
 def build_pretraining_dataset(data_path, transform, names=None,
@@ -62,12 +62,3 @@ def multicrop_collate(batch):
     n_crops = len(batch[0])
     return [torch.stack([sample[i] for sample in batch], dim=0) for i in range(n_crops)]
 
-
-__all__ = [
-    "DEFAULT_PER_DATASET_CAP",
-    "SERIES_LEN",
-    "TARGET_DATASET",
-    "build_pretraining_dataset",
-    "list_ucr_datasets",
-    "multicrop_collate",
-]

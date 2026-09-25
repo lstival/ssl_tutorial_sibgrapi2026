@@ -16,3 +16,4 @@
 *.pth binary
 *.npz binary
 *.npy binary
+*.pt binary

@@ -15,7 +15,7 @@ target-version = "py311"
 # intentionally not linted: they import broadly in the first cell for later cells to use,
 # rebind names across cells, and keep loop counters visible for pedagogy -- all of which a
 # linter flags but none of which are defects here.
-include = ["src/**/*.py", "tools/**/*.py", "*.py"]
+include = ["src/**/*.py", "tools/**/*.py", "tests/**/*.py", "*.py"]
 extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
@@ -41,3 +41,6 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["tutorial_rs", "tutorial_ts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

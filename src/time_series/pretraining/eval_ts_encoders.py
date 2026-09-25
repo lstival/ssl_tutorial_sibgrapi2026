@@ -66,7 +66,7 @@ CHECKPOINT_FILES = {
 }
 
 # Labeled examples per class for the few-label sweep. SwedishLeaf has ~33 train series per
-# class, so 30 is close to the full-label regime and 1 is the extreme.
+# class, so 20 is close to the full-label regime and 1 is the extreme.
 LABEL_BUDGETS = [1, 2, 5, 10, 20]
 
 # Other UCR datasets used for the cross-dataset transfer check. These are never used to tune
@@ -89,29 +89,22 @@ def parse_args():
     return ap.parse_args()
 
 
-args = parse_args()
-SUP_EPOCHS = 15 if args.quick else 60
-transfer_sets = TRANSFER_DATASETS[:2] if args.quick else TRANSFER_DATASETS
-
-device = get_device()
-seed_everything(42)
-
-train_ds = UCRDataset(args.data_path, args.target, "train")
-test_ds = UCRDataset(args.data_path, args.target, "test")
-n_classes = train_ds.n_classes
-print(f"{args.target}: train {len(train_ds)}, test {len(test_ds)}, "
-      f"{n_classes} classes, length {SERIES_LEN} | device {device}")
+def load_splits(data_path, name):
+    return UCRDataset(data_path, name, "train"), UCRDataset(data_path, name, "test")
 
 
-def probe_encoder(encoder, pool="cls", dataset_name=None):
-    """Full-label linear probe on one dataset with a frozen encoder."""
-    if dataset_name is None:
-        tr, te = train_ds, test_ds
-    else:
-        tr = UCRDataset(args.data_path, dataset_name, "train")
-        te = UCRDataset(args.data_path, dataset_name, "test")
-    trf, trl = extract_features(encoder, tr, device, pool=pool)
-    tef, tel = extract_features(encoder, te, device, pool=pool)
+def frozen(encoder):
+    encoder.eval()
+    for p in encoder.parameters():
+        p.requires_grad = False
+    return encoder
+
+
+def probe(encoder, splits, device, pool="cls"):
+    """Full-label linear probe on one (train, test) pair; also returns the features."""
+    train_ds, test_ds = splits
+    trf, trl = extract_features(encoder, train_ds, device, pool=pool)
+    tef, tel = extract_features(encoder, test_ds, device, pool=pool)
     return linear_probe_accuracy(trf, trl, tef, tel), (trf, trl, tef, tel)
 
 
@@ -125,23 +118,21 @@ def few_label_sweep(feats):
     return out
 
 
-def nn_euclidean_baseline():
+def nn_euclidean_baseline(train_ds, test_ds, device):
     """
     1-NN with Euclidean distance on the raw z-normalized series -- the classical UCR baseline
     that every paper on the archive reports, and a genuinely strong one at this scale.
     """
     Xtr = torch.from_numpy(train_ds.X).to(device)
     Xte = torch.from_numpy(test_ds.X).to(device)
-    ytr = train_ds.y
     preds = []
     for i in range(0, len(Xte), 256):
-        d = torch.cdist(Xte[i:i + 256], Xtr)
-        preds.append(d.argmin(dim=1).cpu().numpy())
-    pred_idx = np.concatenate(preds)
-    return float((ytr[pred_idx] == test_ds.y).mean())
+        preds.append(torch.cdist(Xte[i:i + 256], Xtr).argmin(dim=1).cpu().numpy())
+    return float((train_ds.y[np.concatenate(preds)] == test_ds.y).mean())
 
 
-def supervised_end_to_end(epochs=SUP_EPOCHS, lr=1e-3, weight_decay=1e-4, batch_size=64):
+def supervised_end_to_end(train_ds, test_ds, device, epochs, lr=1e-3, weight_decay=1e-4,
+                          batch_size=64):
     """
     Train the same encoder architecture from random init, end to end with labels -- the
     from-scratch ceiling for this dataset. With only 500 labeled series a Transformer overfits
@@ -149,7 +140,7 @@ def supervised_end_to_end(epochs=SUP_EPOCHS, lr=1e-3, weight_decay=1e-4, batch_s
     """
     seed_everything(42)
     enc = build_ts_encoder().to(device)
-    head = nn.Linear(enc.embed_dim, n_classes).to(device)
+    head = nn.Linear(enc.embed_dim, train_ds.n_classes).to(device)
     loader = data.DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=False)
     opt = torch.optim.AdamW(list(enc.parameters()) + list(head.parameters()),
                             lr=lr, weight_decay=weight_decay)
@@ -163,87 +154,102 @@ def supervised_end_to_end(epochs=SUP_EPOCHS, lr=1e-3, weight_decay=1e-4, batch_s
             opt.zero_grad(); loss.backward(); opt.step(); sched.step()
     enc.eval(); head.eval()
     correct = 0
-    test_loader = data.DataLoader(test_ds, batch_size=256, shuffle=False)
     with torch.no_grad():
-        for xb, yb in test_loader:
+        for xb, yb in data.DataLoader(test_ds, batch_size=256, shuffle=False):
             pred = head(enc.forward_features(xb.to(device), pool="cls")).argmax(1).cpu()
             correct += (pred == yb).sum().item()
     return correct / len(test_ds)
 
 
-results = {
-    "target": args.target,
-    "series_len": SERIES_LEN,
-    "n_classes": n_classes,
-    "n_train": len(train_ds),
-    "n_test": len(test_ds),
-    "label_budgets": LABEL_BUDGETS,
-    "full_label": {},
-    "few_label": {},
-    "transfer": {},
-}
+def main():
+    args = parse_args()
+    sup_epochs = 15 if args.quick else 60
+    transfer_names = TRANSFER_DATASETS[:2] if args.quick else TRANSFER_DATASETS
 
-# --- the three SSL encoders ---
-for family, (fname, pool) in CHECKPOINT_FILES.items():
-    path = os.path.join(CHECKPOINT_PATH, fname)
-    if not os.path.isfile(path):
-        print(f"skip {family}: {path} missing")
-        continue
-    enc = build_ts_encoder().to(device)
-    enc.load_state_dict(torch.load(path, map_location=device))
-    enc.eval()
-    for p in enc.parameters():
-        p.requires_grad = False
+    device = get_device()
+    seed_everything(42)
 
-    meta_path = os.path.splitext(path)[0] + ".json"
-    meta = json.load(open(meta_path)) if os.path.isfile(meta_path) else {}
+    target = load_splits(args.data_path, args.target)
+    train_ds, test_ds = target
+    print(f"{args.target}: train {len(train_ds)}, test {len(test_ds)}, "
+          f"{train_ds.n_classes} classes, length {SERIES_LEN} | device {device}")
+    # Built once and shared by every encoder (each build re-resamples / re-normalizes).
+    transfer = {name: load_splits(args.data_path, name) for name in transfer_names}
 
-    # Measure BOTH readouts for every family. The expectation (the remote sensing part,
-    # He et al. 2022) is that
-    # MAE reads out better from mean-pooled patch tokens and cls-trained families from [CLS] --
-    # but that is a claim to verify per run, not to assume, so both are recorded.
-    both = {}
-    for pl in ("cls", "mean"):
-        both[pl] = probe_encoder(enc, pool=pl)[0]
-    results.setdefault("readout", {})[family] = both
+    results = {
+        "target": args.target,
+        "series_len": SERIES_LEN,
+        "n_classes": train_ds.n_classes,
+        "n_train": len(train_ds),
+        "n_test": len(test_ds),
+        "label_budgets": LABEL_BUDGETS,
+        "full_label": {},
+        "few_label": {},
+        "transfer": {},
+    }
 
-    acc, feats = probe_encoder(enc, pool=pool)
-    results["full_label"][family] = {"accuracy": acc, "pool": pool,
-                                     "by_readout": both, "checkpoint_meta": meta}
-    results["few_label"][family] = few_label_sweep(feats)
-    print(f"{family:>12s}: full-label probe {acc:.4f} (pool={pool}) "
-          f"[cls {both['cls']:.4f} | mean {both['mean']:.4f}]")
-    for k, v in results["few_label"][family].items():
-        print(f"{'':>12s}  k={k:>3s}/class: {v:.4f}")
+    # --- the three SSL encoders ---
+    for family, (fname, pool) in CHECKPOINT_FILES.items():
+        path = os.path.join(CHECKPOINT_PATH, fname)
+        if not os.path.isfile(path):
+            print(f"skip {family}: {path} missing")
+            continue
+        enc = build_ts_encoder().to(device)
+        enc.load_state_dict(torch.load(path, map_location=device))
+        frozen(enc)
 
-    results["transfer"][family] = {}
-    for ds_name in transfer_sets:
-        t_acc, _ = probe_encoder(enc, pool=pool, dataset_name=ds_name)
-        results["transfer"][family][ds_name] = t_acc
-        print(f"{'':>12s}  transfer {ds_name:<18s} {t_acc:.4f}")
+        meta_path = os.path.splitext(path)[0] + ".json"
+        meta = {}
+        if os.path.isfile(meta_path):
+            with open(meta_path, encoding="utf-8") as f:
+                meta = json.load(f)
 
-# --- random-init floor: the same architecture, untrained ---
-seed_everything(123)
-rand_enc = build_ts_encoder().to(device)
-rand_enc.eval()
-for p in rand_enc.parameters():
-    p.requires_grad = False
-r_acc, r_feats = probe_encoder(rand_enc, pool="cls")
-results["random_init"] = {"accuracy": r_acc, "few_label": few_label_sweep(r_feats)}
-results["transfer"]["random_init"] = {}
-for ds_name in transfer_sets:
-    results["transfer"]["random_init"][ds_name] = probe_encoder(
-        rand_enc, pool="cls", dataset_name=ds_name)[0]
-print(f"{'random-init':>12s}: full-label probe {r_acc:.4f}")
+        # Measure BOTH readouts for every family. The expectation (the remote sensing part,
+        # He et al. 2022) is that MAE reads out better from mean-pooled patch tokens and
+        # cls-trained families from [CLS] -- a claim to verify per run, not to assume. The
+        # family's own readout is then reused below instead of being probed a third time.
+        by_readout = {pl: probe(enc, target, device, pool=pl) for pl in ("cls", "mean")}
+        both = {pl: res[0] for pl, res in by_readout.items()}
+        results.setdefault("readout", {})[family] = both
 
-# --- classical + supervised reference points ---
-results["nn_euclidean"] = nn_euclidean_baseline()
-print(f"{'1-NN euclid':>12s}: {results['nn_euclidean']:.4f}")
+        acc, feats = by_readout[pool]
+        results["full_label"][family] = {"accuracy": acc, "pool": pool,
+                                         "by_readout": both, "checkpoint_meta": meta}
+        results["few_label"][family] = few_label_sweep(feats)
+        print(f"{family:>12s}: full-label probe {acc:.4f} (pool={pool}) "
+              f"[cls {both['cls']:.4f} | mean {both['mean']:.4f}]")
+        for k, v in results["few_label"][family].items():
+            print(f"{'':>12s}  k={k:>3s}/class: {v:.4f}")
 
-results["supervised"] = supervised_end_to_end()
-print(f"{'supervised':>12s}: {results['supervised']:.4f}")
+        results["transfer"][family] = {}
+        for ds_name, splits in transfer.items():
+            t_acc, _ = probe(enc, splits, device, pool=pool)
+            results["transfer"][family][ds_name] = t_acc
+            print(f"{'':>12s}  transfer {ds_name:<18s} {t_acc:.4f}")
 
-os.makedirs(os.path.dirname(os.path.abspath(args.out_json)), exist_ok=True)
-with open(args.out_json, "w", encoding="utf-8") as f:
-    json.dump(results, f, indent=2)
-print(f"\nwrote {os.path.abspath(args.out_json)}")
+    # --- random-init floor: the same architecture, untrained ---
+    seed_everything(123)
+    rand_enc = frozen(build_ts_encoder().to(device))
+    r_acc, r_feats = probe(rand_enc, target, device, pool="cls")
+    results["random_init"] = {"accuracy": r_acc, "few_label": few_label_sweep(r_feats)}
+    results["transfer"]["random_init"] = {
+        ds_name: probe(rand_enc, splits, device, pool="cls")[0]
+        for ds_name, splits in transfer.items()
+    }
+    print(f"{'random-init':>12s}: full-label probe {r_acc:.4f}")
+
+    # --- classical + supervised reference points ---
+    results["nn_euclidean"] = nn_euclidean_baseline(train_ds, test_ds, device)
+    print(f"{'1-NN euclid':>12s}: {results['nn_euclidean']:.4f}")
+
+    results["supervised"] = supervised_end_to_end(train_ds, test_ds, device, sup_epochs)
+    print(f"{'supervised':>12s}: {results['supervised']:.4f}")
+
+    os.makedirs(os.path.dirname(os.path.abspath(args.out_json)), exist_ok=True)
+    with open(args.out_json, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2)
+    print(f"\nwrote {os.path.abspath(args.out_json)}")
+
+
+if __name__ == "__main__":
+    main()

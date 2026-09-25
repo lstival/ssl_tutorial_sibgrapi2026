@@ -28,14 +28,19 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, os.path.dirname(__file__))
-from pretrain_utils_ts import RunningLogger, save_encoder_checkpoint  # noqa: E402
+from pretrain_utils_ts import (  # noqa: E402
+    LOG_PRINT_EVERY,
+    RunningLogger,
+    enable_fast_cuda,
+    save_encoder_checkpoint,
+    train_log_path,
+)
 from ucr_data import (  # noqa: E402
     DEFAULT_PER_DATASET_CAP,
     build_pretraining_dataset,
     multicrop_collate,
 )
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from tutorial_ts import (  # noqa: E402
     MultiCropTransform,
     build_ts_augmentations,
@@ -102,10 +107,7 @@ def train(args):
     seed_everything(args.seed)
     device = get_device()
     print(f"Device: {device}")
-    if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    enable_fast_cuda(device)
 
     transform = MultiCropTransform(build_ts_augmentations(), build_ts_local_augmentations(),
                                    n_global=args.n_global, n_local=args.n_local)
@@ -129,8 +131,8 @@ def train(args):
     use_amp = device.type == "cuda" and not args.no_amp
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
-    log_path = os.path.splitext(args.out)[0] + "_train_log.jsonl"
-    logger = RunningLogger(log_path)
+    log_path = train_log_path(args.out)
+    logger = RunningLogger(log_path, print_every=LOG_PRINT_EVERY)
     print(f"Mixed precision: {'on' if use_amp else 'off'} | logging to {log_path}")
 
     student.train()

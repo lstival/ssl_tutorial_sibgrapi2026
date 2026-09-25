@@ -7,10 +7,10 @@ Written for the SeCo corpus-scaling study: each pretraining run produces one che
 this script appends that checkpoint's full-label and few-label accuracies to a shared results
 JSON so the scaling curve can be plotted from a single file.
 
-Unlike `eval_mae_checkpoint.py` (full-label only, MAE-specific defaults) this reports the
-few-label curve too -- which is where a larger pretraining corpus is expected to show up most
-clearly, since the full-label probe has only ~3 points of headroom below the supervised
-from-scratch ceiling (0.944).
+It reports the few-label curve too -- which is where a larger pretraining corpus is expected
+to show up most clearly, since the full-label probe has only ~3 points of headroom below the
+supervised from-scratch ceiling (0.944). For a quick full-label-only check of an MAE
+checkpoint, run it with `--pool mean` and no `--out-json`.
 
 Usage:
     python eval_encoder.py --checkpoint ../../../artifacts/remote_sensing/checkpoints/contrastive_seco_f100.pt \\
@@ -21,64 +21,21 @@ import json
 import os
 import sys
 
-import numpy as np
 import torch
 import torch.utils.data as data
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
 
-NOTEBOOKS = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, NOTEBOOKS)
-
-from tutorial_rs import (  # noqa: E402
-    EUROSAT_MEAN,
-    EUROSAT_STD,
-    IMG_SIZE,
-    build_eval_transform,
-    build_vit_s8,
-    build_vit_t8,
-    get_device,
-    load_eurosat,
-    seed_everything,
-    stratified_split,
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from eurosat_probe import (  # noqa: E402
+    eurosat_eval_splits,
+    extract_features,
+    linear_probe_accuracy,
+    subsample_per_class,
 )
+from pretrain_utils import ARCHS  # noqa: E402
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
+from tutorial_rs import get_device, seed_everything  # noqa: E402
+
 LABEL_BUDGETS = [10, 20, 50, 100, 200]
-
-# Encoder variants a checkpoint may have been trained with (see train_contrastive.py --arch).
-# Both are patch-8 at 64x64, so the probe protocol below is identical for either.
-ARCHS = {"vit_s8": build_vit_s8, "vit_t8": build_vit_t8}
-
-
-@torch.no_grad()
-def prepare_data_features(encoder, dataset, device, pool="cls", batch_size=256):
-    loader = data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=0)
-    feats, labels = [], []
-    for imgs, targets in loader:
-        imgs = imgs.to(device)
-        feats.append(encoder.forward_features(imgs, pool=pool).cpu())
-        labels.append(targets)
-    return torch.cat(feats, dim=0).numpy(), torch.cat(labels, dim=0).numpy()
-
-
-def linear_probe_accuracy(train_feats, train_labels, test_feats, test_labels, max_iter=2000):
-    clf = make_pipeline(StandardScaler(), LogisticRegression(max_iter=max_iter))
-    clf.fit(train_feats, train_labels)
-    return accuracy_score(test_labels, clf.predict(test_feats))
-
-
-def subsample_per_class(labels, k, seed=42):
-    """Same per-class subsampler as Notebook 4, so few-label numbers are directly comparable."""
-    rng = np.random.RandomState(seed)
-    indices = []
-    for cls in np.unique(labels):
-        cls_idx = np.where(labels == cls)[0]
-        rng.shuffle(cls_idx)
-        indices.extend(cls_idx[:k])
-    return np.array(indices)
 
 
 def main():
@@ -102,12 +59,9 @@ def main():
     for p in encoder.parameters():
         p.requires_grad = False
 
-    eval_transform = build_eval_transform(img_size=IMG_SIZE, mean=EUROSAT_MEAN, std=EUROSAT_STD)
-    full_dataset = load_eurosat(DATA_DIR, transform=eval_transform)
-    train_idx, test_idx = stratified_split(full_dataset, test_size=0.2, seed=42)
-
-    tr_f, tr_y = prepare_data_features(encoder, data.Subset(full_dataset, train_idx), device, pool=args.pool)
-    te_f, te_y = prepare_data_features(encoder, data.Subset(full_dataset, test_idx), device, pool=args.pool)
+    full_dataset, train_idx, test_idx = eurosat_eval_splits()
+    tr_f, tr_y = extract_features(encoder, data.Subset(full_dataset, train_idx), device, args.pool)
+    te_f, te_y = extract_features(encoder, data.Subset(full_dataset, test_idx), device, args.pool)
     print(f"train {tr_f.shape}, test {te_f.shape}")
 
     full_acc = linear_probe_accuracy(tr_f, tr_y, te_f, te_y)

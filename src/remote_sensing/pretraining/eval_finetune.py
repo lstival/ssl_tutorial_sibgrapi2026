@@ -46,8 +46,9 @@ import torch
 import torch.nn as nn
 import torch.utils.data as data
 
-NOTEBOOKS = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, NOTEBOOKS)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from eurosat_probe import subsample_per_class  # noqa: E402
+from pretrain_utils import ARCHS, DATA_DIR, warmup_cosine_lambda  # noqa: E402
 
 from tutorial_rs import (  # noqa: E402
     EUROSAT_CLASSES,
@@ -56,16 +57,11 @@ from tutorial_rs import (  # noqa: E402
     IMG_SIZE,
     build_eval_transform,
     build_rs_augmentations,
-    build_vit_s8,
-    build_vit_t8,
     get_device,
     load_eurosat,
     seed_everything,
     stratified_split,
 )
-
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "data")
-ARCHS = {"vit_s8": build_vit_s8, "vit_t8": build_vit_t8}
 
 # Per-regime learning rates. See the module docstring: these differ by design, not by accident.
 DEFAULT_LRS = {"frozen": 1e-3, "bitfit": 5e-4, "full": 1e-4}
@@ -76,7 +72,7 @@ class ClassifierWrapper(nn.Module):
         super().__init__()
         self.encoder = encoder
         self.pool = pool
-        self.head = nn.Linear(encoder.pos_embed.shape[-1], n_classes)
+        self.head = nn.Linear(encoder.embed_dim, n_classes)
 
     def forward(self, x):
         return self.head(self.encoder.forward_features(x, pool=self.pool))
@@ -114,17 +110,6 @@ def count_trainable(model):
     enc_total = sum(p.numel() for p in model.encoder.parameters())
     head = sum(p.numel() for p in model.head.parameters())
     return enc_train, enc_total, head
-
-
-def subsample_per_class(labels, k, seed=42):
-    """Same per-class subsampler as Notebook 4 / eval_encoder.py."""
-    rng = np.random.RandomState(seed)
-    indices = []
-    for cls in np.unique(labels):
-        cls_idx = np.where(labels == cls)[0]
-        rng.shuffle(cls_idx)
-        indices.extend(cls_idx[:k])
-    return np.array(indices)
 
 
 def evaluate(model, loader, device, use_amp):
@@ -165,14 +150,8 @@ def run_regime(regime, ckpt_state, arch, train_subset, test_loader, device, args
     epochs = max(args.epochs, math.ceil(args.min_steps / steps_per_epoch))
     total_steps = steps_per_epoch * epochs
     warmup_steps = min(steps_per_epoch * args.warmup_epochs, max(1, total_steps // 10))
-
-    def lr_lambda(step):
-        if step < warmup_steps:
-            return (step + 1) / (warmup_steps + 1)
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        return (1.0 / 50) + (1.0 - 1.0 / 50) * 0.5 * (1.0 + math.cos(math.pi * progress))
-
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, warmup_cosine_lambda(total_steps, warmup_steps))
 
     t0 = time.perf_counter()
     model.train()

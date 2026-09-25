@@ -17,13 +17,12 @@ tqdm>=4.66
 
 # --- remote-sensing half (notebooks/remote_sensing, src/remote_sensing) ---
 torchvision>=0.16          # EuroSAT dataset + transforms
-timm>=0.9                  # ImageNet-pretrained ViT-S/8 used for the embedding comparison
 rasterio>=1.3              # reading Sentinel-2 GeoTIFF tiles for SeCo pretraining
 requests>=2.31             # dataset / checkpoint downloads
 seaborn>=0.12              # plot theming (optional; guarded by try/except)
 
-# --- time-series half (notebooks/time_series, src/time_series) ---
-pandas>=2.0                # ETT / Weather / Electricity CSV loading
+# --- results tables (notebooks/remote_sensing/04_comparative_evaluation) ---
+pandas>=2.0
 
-# --- offline pretraining hyper-parameter search only (src/*/pretraining/optuna_search.py) ---
+# --- offline pretraining hyper-parameter search only (src/remote_sensing/pretraining/optuna_*.py) ---
 optuna>=3.4

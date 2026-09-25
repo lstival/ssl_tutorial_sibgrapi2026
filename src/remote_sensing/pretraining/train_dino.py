@@ -17,6 +17,7 @@ Usage:
 """
 
 import argparse
+import math
 import os
 import sys
 
@@ -28,20 +29,18 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 
 sys.path.insert(0, os.path.dirname(__file__))
-from gpu_aug import (  # noqa: E402
-    LocationShuffler,
-    gpu_augment,
-)
+from gpu_aug import gpu_augment  # noqa: E402
 from pretrain_utils import (  # noqa: E402
     RunningLogger,
     _validate_corpus_args,
     add_dataset_args,
-    build_patch_cache,
-    dataset_norm,
+    build_gpu_source,
+    enable_fast_cuda,
     load_train_state,
     resolve_locations,
     save_encoder_checkpoint,
     save_train_state,
+    train_log_path,
 )
 from seco_data import (  # noqa: E402
     SECO_MEAN,
@@ -82,17 +81,17 @@ class DINOHead(nn.Module):
     def cancel_last_layer_grad(self):
         """Zero the last-layer gradient -- called during the freeze_last_layer warmup epochs."""
         for p in self.last_layer.parameters():
-            if p.grad is not None:
-                p.grad = None
+            p.grad = None
 
 
 class DINOModel(nn.Module):
     """Encoder + DINO head, identical in spirit to Notebook 3's DINOModel."""
 
-    def __init__(self, encoder, embed_dim=384, hidden_dim=512, out_dim=1024):
+    def __init__(self, encoder, hidden_dim=512, out_dim=1024):
         super().__init__()
         self.encoder = encoder
-        self.head = DINOHead(embed_dim, hidden_dim, out_dim)
+        # Width read off the encoder, so --arch-style swaps (vit_t8: 192) need no extra flag.
+        self.head = DINOHead(encoder.embed_dim, hidden_dim, out_dim)
 
     def forward(self, x):
         h = self.encoder.forward_features(x)
@@ -139,25 +138,6 @@ class MultiCropTransform:
         crops = [self.global_transform(x) for _ in range(self.n_global)]
         crops += [self.local_transform(x) for _ in range(self.n_local)]
         return crops
-
-
-def build_gpu_source(args, device):
-    """
-    GPU multi-crop source: the decoded corpus as one uint8 tensor plus a shuffled location
-    stream, replacing the DataLoader. DINO is the pipeline's worst case on the CPU path --
-    n_global + n_local crops are augmented per sample per step, all single-threaded Python --
-    so it gains the most here. See gpu_aug.py.
-    """
-    cache, cache_device = build_patch_cache(args, device)
-
-    sample_gen = torch.Generator(device=cache_device)
-    sample_gen.manual_seed(args.seed)
-    aug_gen = torch.Generator(device=device)
-    aug_gen.manual_seed(args.seed + 1)
-
-    shuffler = LocationShuffler(len(cache), args.batch_size, cache_device, generator=sample_gen)
-    mean, std = dataset_norm(args, device)
-    return cache, shuffler, sample_gen, aug_gen, mean, std
 
 
 def gpu_multicrop(raw_batch, args, mean, std, generator):
@@ -219,11 +199,7 @@ def train(args):
     _validate_corpus_args(args)
     device = get_device()
     print(f"Device: {device}")
-
-    if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.allow_tf32 = True
+    enable_fast_cuda(device)
 
     use_gpu_aug = not args.no_gpu_aug and device.type == "cuda"
     cache = loader = None
@@ -256,19 +232,17 @@ def train(args):
     use_amp = device.type == "cuda" and not args.no_amp
     scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
 
-    logger = RunningLogger(os.path.join(os.path.dirname(args.out), "dino_train_log.jsonl"))
+    logger = RunningLogger(train_log_path(args.out))
 
     # Full-state resume checkpoint. DINO has extra state beyond the student (the EMA teacher and
     # the center vector), which we stash in `extra` and restore by hand below.
     state_path = os.path.splitext(args.out)[0] + ".train.pt"
     start_step = 0
     if args.resume:
-        import os.path as _osp
-        if _osp.isfile(state_path):
-            _state = torch.load(state_path, map_location=device)
-            teacher.load_state_dict(_state["extra"]["teacher"])
-            center = _state["extra"]["center"].to(device)
-        start_step = load_train_state(state_path, student, optimizer, scheduler, device)
+        start_step, extra = load_train_state(state_path, student, optimizer, scheduler, device)
+        if extra:
+            teacher.load_state_dict(extra["teacher"])
+            center = extra["center"].to(device)
         if start_step >= args.steps:
             print(f"Already at step {start_step} >= target {args.steps}; nothing to do.")
             logger.close()
@@ -332,8 +306,8 @@ def train(args):
         # stops updating entirely, so the last thousands of steps train the student against a
         # frozen target and the exported (teacher) checkpoint is stale.
         m = args.ema_momentum_end - (args.ema_momentum_end - args.ema_momentum_start) * (
-            1 + torch.cos(torch.tensor(step / args.steps * 3.14159265))
-        ).item() / 2
+            1 + math.cos(math.pi * step / args.steps)
+        ) / 2
         m = min(m, args.ema_momentum_max)
         ema_update(student, teacher, m=m)
         center = update_center(center, teacher_logits, momentum=args.center_momentum)
@@ -376,7 +350,7 @@ def parse_args():
     # freeze_last_layer, grad clip, EMA capped < 1.0). The previous defaults (lr=1.02e-4,
     # bs=64, n_local=3, tau_teacher=0.0408 with no warmup) came from a 1000-step proxy of a
     # different procedure and collapsed the full SeCo run: teacher entropy -> ~0.18 over 2048
-    # dims, EuroSAT linear probe 0.846 (below the 0.785 random-init floor before the fixes).
+    # dims, EuroSAT linear probe barely above the random-init floor.
     # The new region is bs=256, many local crops, a slow lr, and tau_teacher ~= 0.074.
     parser.add_argument("--n-global", type=int, default=2)
     parser.add_argument("--n-local", type=int, default=6)

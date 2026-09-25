@@ -16,14 +16,9 @@ Every notebook downloads this file at the top (Colab) or imports it directly (lo
 import os
 import random
 import shutil
-import socket
 import sys
 import urllib.request
 from urllib.error import HTTPError, URLError
-
-# Failures that mean "this host is unreachable / refused", as opposed to a local problem
-# (a bad permission, a half-extracted directory) that a different mirror would not fix.
-DOWNLOAD_ERRORS = (URLError, HTTPError, socket.timeout, TimeoutError, ConnectionError)
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -33,6 +28,11 @@ import torch.nn.functional as F
 import torchvision
 from torchvision import transforms
 from torchvision.datasets import EuroSAT
+
+# Failures that mean "this host is unreachable / refused", as opposed to a local problem
+# (a bad permission, a half-extracted directory) that a different mirror would not fix.
+# (HTTPError subclasses URLError; socket.timeout is TimeoutError since Python 3.10.)
+DOWNLOAD_ERRORS = (URLError, TimeoutError, ConnectionError)
 
 # =====================================================================================
 # Reproducibility & device
@@ -323,6 +323,7 @@ class ViTEncoder(nn.Module):
     def __init__(self, img_size=IMG_SIZE, patch_size=8, in_chans=3, embed_dim=384,
                  depth=6, num_heads=6, mlp_ratio=4.0, dropout=0.0):
         super().__init__()
+        self.embed_dim = embed_dim
         self.patch_embed = PatchEmbed(img_size, patch_size, in_chans, embed_dim)
         num_patches = self.patch_embed.num_patches
         self.grid_size = self.patch_embed.grid_size
@@ -396,70 +397,6 @@ def build_vit_s8(**kwargs):
     return ViTEncoder(**defaults)
 
 
-def load_imagenet_dino_weights(encoder, timm_name="vit_small_patch8_224.dino", verbose=True):
-    """
-    Initialize a `build_vit_s8()` encoder from ImageNet-DINO ViT-S/8 weights (via timm).
-
-    The two models share patch size and width but not shape, so three things are reconciled:
-
-      - **Depth**: the source has 12 blocks, ours has `depth`; we keep the first `depth`.
-        Early blocks carry the generic low-level features that transfer; later blocks are the
-        most ImageNet-specific, so truncating from the top is the usual choice.
-      - **Position embeddings**: the source is 224x224 (a 28x28 patch grid), ours is 64x64
-        (8x8). The [CLS] embedding is kept as-is and the patch grid is bicubically resized,
-        the standard ViT recipe for changing input resolution.
-      - **Parameter layout**: timm uses a fused `qkv` projection and `mlp.fc1/fc2`, while this
-        encoder uses `nn.MultiheadAttention` (`in_proj_*`) and `nn.Sequential` MLP indices.
-        The fused `qkv` weight maps directly onto `in_proj_weight`: both are [q; k; v] stacked.
-
-    Returns the encoder, loaded in place.
-    """
-    import timm
-
-    src = timm.create_model(timm_name, pretrained=True, num_classes=0).state_dict()
-    depth = len([k for k in encoder.state_dict() if k.startswith("blocks.") and k.endswith("norm1.weight")])
-    grid = encoder.grid_size
-
-    new_sd = {
-        "cls_token": src["cls_token"],
-        "patch_embed.proj.weight": src["patch_embed.proj.weight"],
-        "patch_embed.proj.bias": src["patch_embed.proj.bias"],
-        "norm.weight": src["norm.weight"],
-        "norm.bias": src["norm.bias"],
-    }
-
-    pos = src["pos_embed"]
-    cls_pos, patch_pos = pos[:, :1], pos[:, 1:]
-    src_grid = int(patch_pos.shape[1] ** 0.5)
-    dim = patch_pos.shape[-1]
-    patch_pos = patch_pos.reshape(1, src_grid, src_grid, dim).permute(0, 3, 1, 2)
-    patch_pos = F.interpolate(patch_pos, size=(grid, grid), mode="bicubic", align_corners=False)
-    new_sd["pos_embed"] = torch.cat(
-        [cls_pos, patch_pos.permute(0, 2, 3, 1).reshape(1, grid * grid, dim)], dim=1
-    )
-
-    for i in range(depth):
-        p = f"blocks.{i}."
-        new_sd[p + "norm1.weight"] = src[p + "norm1.weight"]
-        new_sd[p + "norm1.bias"] = src[p + "norm1.bias"]
-        new_sd[p + "norm2.weight"] = src[p + "norm2.weight"]
-        new_sd[p + "norm2.bias"] = src[p + "norm2.bias"]
-        new_sd[p + "attn.in_proj_weight"] = src[p + "attn.qkv.weight"]
-        new_sd[p + "attn.in_proj_bias"] = src[p + "attn.qkv.bias"]
-        new_sd[p + "attn.out_proj.weight"] = src[p + "attn.proj.weight"]
-        new_sd[p + "attn.out_proj.bias"] = src[p + "attn.proj.bias"]
-        new_sd[p + "mlp.0.weight"] = src[p + "mlp.fc1.weight"]
-        new_sd[p + "mlp.0.bias"] = src[p + "mlp.fc1.bias"]
-        new_sd[p + "mlp.3.weight"] = src[p + "mlp.fc2.weight"]
-        new_sd[p + "mlp.3.bias"] = src[p + "mlp.fc2.bias"]
-
-    encoder.load_state_dict(new_sd, strict=True)
-    if verbose:
-        print(f"Initialized from {timm_name}: first {depth} of 12 blocks, "
-              f"pos-embed {src_grid}x{src_grid} -> {grid}x{grid}.")
-    return encoder
-
-
 def build_vit_t8(**kwargs):
     """
     Factory for a ViT-Tiny/8 backbone: embed_dim=192, depth=4, num_heads=3 (~1.8M parameters
@@ -495,7 +432,6 @@ CHECKPOINT_REPO_PATH = "artifacts/remote_sensing/checkpoints"
 CHECKPOINT_BASE_URL = (
     f"https://github.com/{GITHUB_REPO}/releases/download/{WEIGHTS_RELEASE_TAG}/"
 )
-PRECOMPUTED_BASE_URL = CHECKPOINT_BASE_URL
 
 # Where a local clone keeps the weights, relative to a notebook in notebooks/remote_sensing/.
 LOCAL_CHECKPOINT_DIRS = (
@@ -752,8 +688,6 @@ def show_attention_grid(images_chw, attn_maps, titles=None, upsample_to=None,
     Two rows -- raw image on top, overlay below -- so the attention can be compared against
     what is actually in the scene, with a shared colorbar labeling low/high attention.
     """
-    import torch.nn.functional as F
-
     n = min(len(images_chw), ncols)
     fig, axes = plt.subplots(2, n, figsize=(1.9 * n, 4.2), squeeze=False)
 
